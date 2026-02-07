@@ -5,10 +5,10 @@ from typing import Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-import torch
 from torch.utils.data import DataLoader
 
-from daics.data.windows import SlidingWindowDataset, WindowingConfig
+from daics.data.datasets import WindowDataset
+from daics.data.windowing import WindowingConfig
 
 
 @dataclass(frozen=True)
@@ -163,9 +163,11 @@ def make_dataloaders(
     X_va, y_va = _slice_by_time(splits["val"])
     X_te, y_te = Xn[splits["test"]], y[splits["test"]]
 
-    train_ds = SlidingWindowDataset(X_tr, labels=y_tr, cfg=window_cfg)
-    val_ds = SlidingWindowDataset(X_va, labels=y_va, cfg=window_cfg)
-    test_ds = SlidingWindowDataset(X_te, labels=y_te, cfg=window_cfg)
+    # WindowDataset delegates the math to windowing.py (paper notation W/H/S)
+    train_ds = WindowDataset(X_tr, y_tr, window_cfg)
+    val_ds = WindowDataset(X_va, y_va, window_cfg)
+    test_ds = WindowDataset(X_te, y_te, window_cfg)
+
 
     train_loader = DataLoader(
         train_ds,

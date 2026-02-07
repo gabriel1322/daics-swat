@@ -4,7 +4,7 @@ import argparse
 
 from daics.config import load_config
 from daics.data.dataloaders import LoaderConfig, SplitConfig, make_dataloaders
-from daics.data.windows import WindowingConfig
+from daics.data.windowing import WindowingConfig
 
 
 def main() -> None:
