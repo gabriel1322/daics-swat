@@ -16,6 +16,8 @@ dependencies = [
   "tqdm>=4.66",
   "pyyaml>=6.0",
   "matplotlib>=3.8",
+  "pyarrow",
+  "fastparquet",
 ]
 
 [project.optional-dependencies]
