@@ -1,0 +1,15 @@
+# Base configuration for DAICS-SWaT
+data:
+  normal_csv: "data/normal.csv"
+  attack_csv: "data/attack.csv"
+  merged_csv: "data/merged.csv"
+
+preprocess:
+  drop_timestamp: true
+  label_col: "Normal/Attack"
+  downsample_sec: 10
+  remove_first_hours: 6
+
+train:
+  seed: 42
+  device: "auto"   # "auto" | "cpu" | "cuda"
