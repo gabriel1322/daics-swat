@@ -17,11 +17,9 @@ class DataConfig:
     normal_csv: str = "data/SWaT_Dataset_Normal_v1.csv"
     attack_csv: str = "data/SWaT_Dataset_Attack_v0.csv"
 
-    # Output of preprocessing
-    processed_path: str = "data/processed_swat.parquet"
-
-    # Column name inside raw CSVs (SWaT uses literally "Normal/Attack")
-    raw_label_col: Optional[str] = None
+    # Paper-strict outputs (2 parquets)
+    processed_normal_path: str = "data/processed_swat_normal.parquet"
+    processed_attack_path: str = "data/processed_swat_attack.parquet"
 
     # Column name inside processed parquet (we store an integer "label": 0 normal, 1 attack)
     label_col: str = "label"
@@ -31,7 +29,7 @@ class DataConfig:
 class PreprocessConfig:
     drop_timestamp: bool = True
 
-    # Label column to read from raw CSV (paper dataset provides Normal/Attack)
+    # Label column to read from raw CSV (SWaT provides Normal/Attack)
     label_col: str = "Normal/Attack"
 
     downsample_sec: int = 10
@@ -42,26 +40,22 @@ class PreprocessConfig:
 class WindowingYamlConfig:
     # Paper notation:
     # Win  = input time window length
-    # Wout = output time window length
+    # Wout = output prediction window length
     # H    = horizon gap
     Win: int = 60
     Wout: int = 4
     H: int = 50
 
-    # stride (not central in paper, keep for implementation)
+    # stride
     S: int = 1
 
     # label aggregation inside the predicted window Wout
-    # "any" => label=1 if any point in the Wout window is anomalous
     label_agg: str = "any"
 
 
 @dataclass(frozen=True)
 class DetectionYamlConfig:
-    # Paper hyperparameter
     Wanom: int = 30
-
-    # Optional grace time (paper mentions it later)
     Wgrace: int = 0
 
 
@@ -87,19 +81,16 @@ class LoaderYamlConfig:
 
 @dataclass(frozen=True)
 class WDNNYamlConfig:
-    # Paper WDNN training hyperparams (Table 4)
     lr: float = 1e-3
     batch_size: int = 32
     epochs: int = 100
 
     out_dir: str = "runs/wdnn"
 
-    # Optional explicit sizes (paper Table 4)
     dl1: Optional[int] = None
     dl2: Optional[int] = None
     dl4: int = 80
 
-    # Conv params (SWaT Table 4 uses kernel size 2)
     cl1_channels: int = 64
     cl1_kernel: int = 2
     cl2_channels: int = 128
@@ -107,19 +98,16 @@ class WDNNYamlConfig:
 
     leaky_slope: float = 0.01
 
-    # trainer extras
     weight_decay: float = 0.0
     grad_clip: float = 1.0
 
 
 @dataclass(frozen=True)
 class TTNNYamlConfig:
-    # Paper TTNN hyperparams (Table 4)
     lr: float = 1e-2
     batch_size: int = 32
     epochs: int = 1
     median_kernel: int = 59
-
     out_dir: str = "runs/ttnn"
 
 
@@ -128,9 +116,25 @@ class TrainRuntimeConfig:
     seed: int = 42
     device: str = "auto"  # "auto" | "cpu" | "cuda"
 
-    # Nested model configs (THIS matches YAML train.wdnn / train.ttnn)
     wdnn: WDNNYamlConfig = WDNNYamlConfig()
     ttnn: TTNNYamlConfig = TTNNYamlConfig()
+
+
+# -------------------------
+# Evaluation config (paper-like mixed test)
+# -------------------------
+
+@dataclass(frozen=True)
+class EvalYamlConfig:
+    """
+    We build the TEST set on-the-fly from 2 parquets:
+      test = tail(normal, normal_tail_rows) + all(attack)
+
+    This creates a mixed set (normal + attack) while keeping the "paper strict"
+    preprocessing outputs separated.
+    """
+    test_mode: str = "mixed_tail+attack"
+    normal_tail_rows: int = 20000
 
 
 @dataclass(frozen=True)
@@ -142,6 +146,7 @@ class Config:
     splits: SplitsYamlConfig = SplitsYamlConfig()
     loader: LoaderYamlConfig = LoaderYamlConfig()
     train: TrainRuntimeConfig = TrainRuntimeConfig()
+    eval: EvalYamlConfig = EvalYamlConfig()
 
 
 # ------------------------------------------------------------
@@ -159,7 +164,6 @@ def _deep_update(base: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _as_dict(cfg: Config) -> Dict[str, Any]:
-    # dataclasses -> nested dict (only what we allow in YAML)
     return {
         "data": cfg.data.__dict__,
         "preprocess": cfg.preprocess.__dict__,
@@ -173,6 +177,7 @@ def _as_dict(cfg: Config) -> Dict[str, Any]:
             "wdnn": cfg.train.wdnn.__dict__,
             "ttnn": cfg.train.ttnn.__dict__,
         },
+        "eval": cfg.eval.__dict__,
     }
 
 
@@ -180,6 +185,8 @@ def _from_dict(d: Dict[str, Any]) -> Config:
     train_d = d.get("train", {}) or {}
     wdnn_d = train_d.get("wdnn", {}) or {}
     ttnn_d = train_d.get("ttnn", {}) or {}
+
+    eval_d = d.get("eval", {}) or {}
 
     train_cfg = TrainRuntimeConfig(
         seed=train_d.get("seed", 42),
@@ -196,6 +203,7 @@ def _from_dict(d: Dict[str, Any]) -> Config:
         splits=SplitsYamlConfig(**(d.get("splits", {}) or {})),
         loader=LoaderYamlConfig(**(d.get("loader", {}) or {})),
         train=train_cfg,
+        eval=EvalYamlConfig(**eval_d),
     )
 
 

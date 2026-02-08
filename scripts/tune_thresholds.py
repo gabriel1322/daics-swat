@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 from daics.config import load_config
-from daics.data.dataloaders import make_dataloaders
+from daics.data.dataloaders import make_dataloaders_paper_strict
 from daics.eval.mse import compute_section_mse_series
 from daics.eval.thresholds import ThresholdTuningConfig, compute_Tbase, load_ttnn_checkpoint, tune_threshold_Tg
 from daics.train.wdnn_trainer import load_wdnn_checkpoint  # déjà chez toi (utilisé dans train_ttnn)
@@ -58,12 +58,15 @@ def main() -> None:
     )
 
     # Dataloaders (paper split semantics already handled in make_dataloaders)
-    _train_loader, val_loader, _test_loader, artifacts = make_dataloaders(
-        parquet_path=cfg.data.processed_path,
+    train_loader, val_loader, test_loader, artifacts = make_dataloaders_paper_strict(
+        normal_parquet_path=cfg.data.processed_normal_path,
+        attack_parquet_path=cfg.data.processed_attack_path,
         window_cfg=cfg.windowing,
         split_cfg=cfg.splits,
         loader_cfg=cfg.loader,
         label_col=cfg.data.label_col,
+        test_mode=str(cfg.eval.test_mode),
+        normal_tail_rows=int(cfg.eval.normal_tail_rows),
     )
 
     # Load WDNN
@@ -114,7 +117,8 @@ def main() -> None:
         "created_at": datetime.utcnow().isoformat() + "Z",
         "config_path": str(args.config),
         "dataset": {
-            "parquet": str(cfg.data.processed_path),
+            "parquet_normal": str(cfg.data.processed_normal_path),
+            "parquet_attack": str(cfg.data.processed_attack_path),
             "m": int(artifacts["m"]),
             "mse": int(artifacts["mse"]),
             "mac": int(artifacts["mac"]),

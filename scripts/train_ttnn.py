@@ -24,7 +24,7 @@ import numpy as np
 import torch
 
 from daics.config import load_config
-from daics.data.dataloaders import make_dataloaders
+from daics.data.dataloaders import make_dataloaders_paper_strict
 from daics.train.ttnn_trainer import TTNNTrainConfig, save_ttnn_checkpoint, train_ttnn_one_section
 from daics.train.wdnn_trainer import load_wdnn_checkpoint  # must exist in your repo
 from daics.eval.mse import compute_section_mse_series      # we'll implement right after if needed
@@ -60,12 +60,15 @@ def main() -> None:
     # Build dataloaders (paper: TTNN trained on validation, benign-only)
     # ------------------------------------------------------------------
     logger.info("Building dataloaders...")
-    train_loader, val_loader, test_loader, artifacts = make_dataloaders(
-        parquet_path=cfg.data.processed_path,
+    train_loader, val_loader, test_loader, artifacts = make_dataloaders_paper_strict(
+        normal_parquet_path=cfg.data.processed_normal_path,
+        attack_parquet_path=cfg.data.processed_attack_path,
         window_cfg=cfg.windowing,
         split_cfg=cfg.splits,
         loader_cfg=cfg.loader,
         label_col=cfg.data.label_col,
+        test_mode=str(cfg.eval.test_mode),
+        normal_tail_rows=int(cfg.eval.normal_tail_rows),
     )
 
     win = int(cfg.windowing.Win)

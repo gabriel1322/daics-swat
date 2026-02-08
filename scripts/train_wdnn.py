@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import List
 
 from daics.config import load_config
-from daics.data.dataloaders import make_dataloaders
+from daics.data.dataloaders import make_dataloaders_paper_strict
 from daics.models.wdnn import WDNNConfig
 from daics.train.wdnn_trainer import WDNNTrainConfig, train_wdnn
 
@@ -31,12 +31,15 @@ def main() -> None:
     cfg = load_config(args.config)
 
     # Build loaders (paper-like one-class split is inside dataloaders)
-    train_loader, val_loader, _test_loader, artifacts = make_dataloaders(
-        parquet_path=cfg.data.processed_path,
+    train_loader, val_loader, test_loader, artifacts = make_dataloaders_paper_strict(
+        normal_parquet_path=cfg.data.processed_normal_path,
+        attack_parquet_path=cfg.data.processed_attack_path,
         window_cfg=cfg.windowing,
         split_cfg=cfg.splits,
         loader_cfg=cfg.loader,
         label_col=cfg.data.label_col,
+        test_mode=str(cfg.eval.test_mode),
+        normal_tail_rows=int(cfg.eval.normal_tail_rows),
     )
 
     mse = int(artifacts["mse"])
@@ -80,7 +83,7 @@ def main() -> None:
 
     print("[INFO] WDNN training config")
     print(f"  Device        : {cfg.train.device}")
-    print(f"  Data parquet  : {cfg.data.processed_path}")
+    print(f"  Data parquet  : {cfg.data.processed_normal_path}")
     print(f"  Win/Wout/H/S  : {cfg.windowing.Win}/{cfg.windowing.Wout}/{cfg.windowing.H}/{cfg.windowing.S}")
     print(f"  Wanom/Wgrace  : {cfg.detection.Wanom}/{cfg.detection.Wgrace}")
     print(f"  m/mse/mac     : {artifacts['m']}/{artifacts['mse']}/{artifacts['mac']}")

@@ -1,8 +1,9 @@
 {
-  "created_at": "2026-02-08T13:40:31.193127Z",
+  "created_at": "2026-02-08T17:35:37.409980Z",
   "config_path": "configs/base.yaml",
   "dataset": {
-    "parquet": "data/processed_swat.parquet",
+    "parquet_normal": "data/processed_swat_normal.parquet",
+    "parquet_attack": "data/processed_swat_attack.parquet",
     "m": 51,
     "mse": 26,
     "mac": 25
@@ -23,7 +24,7 @@
   },
   "thresholds": {
     "Tbase": 0.02874687686562538,
-    "Tg_section0": 0.049461837857961655,
+    "Tg_section0": 0.04258398339152336,
     "median_kernel": 59
   },
   "notes": "G=1 (single section) for now; explain sectioning choice in report."

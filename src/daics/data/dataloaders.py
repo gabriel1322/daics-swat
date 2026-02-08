@@ -4,16 +4,24 @@ from __future__ import annotations
 DAICS dataloaders (paper-aligned)
 
 Paper notation:
-  Win  : input window length (seconds / samples)
+  Win  : input window length
   Wout : output prediction window length
   H    : horizon gap between input end and output start
   m    : total features per timestep (m = mse + mac)
-  mse  : number of sensors
+  mse  : number of sensors (targets for WDNN)
   mac  : number of actuators
 
-Project invariant:
-  - processed parquet contains numeric feature columns (SWaT: 51)
-  - processed parquet contains 'label' column as {0 normal, 1 attack}
+Paper-like split for SWaT:
+  - Train/Val: from NORMAL dataset only (benign behavior)
+  - Test: should contain BOTH normal and attack to compute meaningful TN/FP etc.
+
+In this repo (paper-strict preprocessing outputs):
+  - normal_parquet: contains only normal period rows (label=0)
+  - attack_parquet: contains only attack period rows (label=1)
+
+We build the test set on-the-fly:
+  test = tail(normal, normal_tail_rows) + all(attack)
+This yields a mixed test set while keeping preprocessing strict and reproducible.
 """
 
 from dataclasses import dataclass
@@ -27,17 +35,11 @@ from daics.data.windowing import SlidingWindowDataset, WindowingConfig
 
 
 # ---------------------------
-# Configs
+# Configs (simple)
 # ---------------------------
 
 @dataclass(frozen=True)
 class SplitConfig:
-    """
-    One-class split (paper spirit):
-      - train/val: normal-only
-      - test: remaining timeline (mixed)
-    Contiguous split on NORMAL timeline to preserve temporal structure.
-    """
     train_ratio: float = 0.8
     val_ratio: float = 0.2
     seed: int = 42
@@ -52,60 +54,43 @@ class LoaderConfig:
 
 
 # ---------------------------
-# Parquet loading utilities
+# Helpers: label + feature loading
 # ---------------------------
 
 def _infer_label_column(df: pd.DataFrame, label_col: Optional[str]) -> str:
     """
-    Processed parquet should contain 'label' as int {0,1}.
-    If someone mistakenly passes raw CSV label ("Normal/Attack"), we fall back to 'label'.
+    Paper invariant for our processed parquets:
+      - label column is named 'label' and is integer {0,1}
     """
-    cols = list(df.columns)
+    df.columns = [str(c).strip() for c in df.columns]
 
-    if "label" in df.columns:
-        if label_col is not None and label_col != "label" and label_col not in df.columns:
-            return "label"
-        if label_col is None or label_col == "label":
-            return "label"
+    if label_col is None:
+        label_col = "label"
 
-    if label_col is not None:
-        if label_col in df.columns:
-            return label_col
+    if label_col not in df.columns:
+        # Fail loudly here: processed parquets MUST have 'label'
         raise ValueError(
             f"label_col='{label_col}' not found in parquet columns. "
-            f"Columns include: {cols[:12]}{'...' if len(cols) > 12 else ''}. "
-            "For SWaT parquet produced by our preprocess, use label_col='label'."
+            "Expected processed label column 'label' (0 normal, 1 attack). "
+            f"First columns: {list(df.columns)[:12]}"
         )
-
-    for c in ["Label", "is_attack", "attack", "normal_attack", "Normal/Attack"]:
-        if c in df.columns:
-            return c
-
-    raise ValueError("Could not infer label column; expected 'label'.")
+    return label_col
 
 
-def load_processed_parquet(
-    path: str,
-    label_col: Optional[str],
-) -> Tuple[np.ndarray, np.ndarray, list]:
+def load_processed_parquet(path: str, label_col: Optional[str]) -> Tuple[np.ndarray, np.ndarray, list[str]]:
     """
     Returns:
       X: float32 (T, m)
-      y: int64   (T,)  0 normal, 1 attack
-      feature_cols: list[str] (order corresponds to X columns)
+      y: int64   (T,) in {0,1}
+      feature_cols: list[str]
     """
     df = pd.read_parquet(path)
     df.columns = [str(c).strip() for c in df.columns]
 
     lab_col = _infer_label_column(df, label_col)
 
-    # build binary labels
-    if df[lab_col].dtype == object:
-        raw = df[lab_col].astype(str).str.strip().str.lower()
-        y = raw.str.contains("attack").astype(np.int64).to_numpy()
-    else:
-        y = pd.to_numeric(df[lab_col], errors="coerce").fillna(0).astype(int).to_numpy()
-        y = (y != 0).astype(np.int64)
+    y = pd.to_numeric(df[lab_col], errors="coerce").fillna(0).astype(int).to_numpy()
+    y = (y != 0).astype(np.int64)
 
     drop_cols = {lab_col, "__index_level_0__"}
     feature_cols = [c for c in df.columns if c not in drop_cols]
@@ -117,53 +102,28 @@ def load_processed_parquet(
     return X, y, feature_cols
 
 
-def fit_minmax_on_normal(X: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
+def fit_minmax_on_normal(X_normal: np.ndarray) -> Dict[str, np.ndarray]:
     """
-    Paper (VII-A): normalise readings between 0 and 1.
-    Fit MinMax scaler on normal-only points.
+    Fit MinMax scaler on NORMAL-only points (paper VII-A).
+    Returns scaler dict: {"min": ..., "den": ...}
     """
-    normal_rows = X[y == 0]
-    if len(normal_rows) == 0:
-        raise ValueError("No normal rows found to fit MinMax scaler.")
+    if len(X_normal) == 0:
+        raise ValueError("Normal array is empty; cannot fit scaler.")
 
-    mn = normal_rows.min(axis=0)
-    mx = normal_rows.max(axis=0)
+    mn = X_normal.min(axis=0)
+    mx = X_normal.max(axis=0)
     den = np.where((mx - mn) < 1e-12, 1.0, (mx - mn))
-
-    Xn = np.clip((X - mn) / den, 0.0, 1.0).astype(np.float32, copy=False)
-    scaler = {"min": mn.astype(np.float32), "den": den.astype(np.float32)}
-    return Xn, scaler
+    return {"min": mn.astype(np.float32), "den": den.astype(np.float32)}
 
 
-def contiguous_normal_splits(
-    y: np.ndarray,
-    split_cfg: Any,
-) -> Dict[str, np.ndarray]:
-    """
-    Contiguous split on NORMAL indices:
-      train = first train_ratio of normal points
-      val   = next val_ratio of normal points
-      test  = everything after val cutoff (time order)
-    """
-    T = len(y)
-    normal_idx = np.where(y == 0)[0]
-    if normal_idx.size == 0:
-        raise ValueError("No normal indices found.")
-
-    n_total = normal_idx.size
-    n_train = int(n_total * float(split_cfg.train_ratio))
-    n_val = int(n_total * float(split_cfg.val_ratio))
-
-    train_idx = normal_idx[:n_train]
-    val_idx = normal_idx[n_train : n_train + n_val]
-
-    cutoff = int(val_idx[-1] + 1) if val_idx.size > 0 else int(train_idx[-1] + 1)
-    test_idx = np.arange(cutoff, T, dtype=np.int64)
-    return {"train": train_idx, "val": val_idx, "test": test_idx}
+def apply_minmax(X: np.ndarray, scaler: Dict[str, np.ndarray]) -> np.ndarray:
+    mn = scaler["min"]
+    den = scaler["den"]
+    return np.clip((X - mn) / den, 0.0, 1.0).astype(np.float32, copy=False)
 
 
 # ---------------------------
-# Sensor/Actuator partition (SWaT-friendly)
+# Sensor/Actuator partition (SWaT heuristic)
 # ---------------------------
 
 _SENSOR_PREFIXES = ("AIT", "FIT", "LIT", "PIT", "DPIT", "UV")
@@ -171,12 +131,10 @@ _SENSOR_PREFIXES = ("AIT", "FIT", "LIT", "PIT", "DPIT", "UV")
 
 def infer_sensor_actuator_indices(feature_cols: list[str]) -> Tuple[np.ndarray, np.ndarray, list[str], list[str]]:
     """
-    DAICS WDNN predicts SENSOR states only.
-    We therefore need sensor_idx (columns in X corresponding to sensors).
-
-    For SWaT, feature names allow a robust heuristic:
+    WDNN predicts SENSOR states only.
+    SWaT heuristic:
       Sensors: AIT*, FIT*, LIT*, PIT*, DPIT*, UV*
-      Actuators: typically MV*, P* (but NOT PIT*)
+      Actuators: everything else (e.g., MV*, P* (NOT PIT*))
     """
     sensor_cols: list[str] = []
     actuator_cols: list[str] = []
@@ -192,84 +150,155 @@ def infer_sensor_actuator_indices(feature_cols: list[str]) -> Tuple[np.ndarray, 
     actuator_idx = np.array([feature_cols.index(c) for c in actuator_cols], dtype=np.int64)
 
     if sensor_idx.size == 0:
-        raise ValueError(
-            "Could not infer any sensor columns. "
-            "Check your feature column names in the parquet."
-        )
+        raise ValueError("Could not infer any sensor columns from feature names.")
 
     return sensor_idx, actuator_idx, sensor_cols, actuator_cols
 
 
 # ---------------------------
-# Main entrypoint
+# Normal contiguous split for train/val
 # ---------------------------
 
-def make_dataloaders(
-    parquet_path: str,
+def contiguous_split_normal(Xn: np.ndarray, split_cfg: Any) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Train/Val split on the NORMAL timeline (contiguous).
+    Returns:
+      idx_train: indices in [0..len(Xn)-1]
+      idx_val  : indices in [0..len(Xn)-1]
+    """
+    n_total = len(Xn)
+    n_train = int(n_total * float(split_cfg.train_ratio))
+    n_val = int(n_total * float(split_cfg.val_ratio))
+
+    # Ensure we always have something
+    n_train = max(1, n_train)
+    n_val = max(1, n_val)
+    if n_train + n_val > n_total:
+        n_val = max(1, n_total - n_train)
+
+    idx_train = np.arange(0, n_train, dtype=np.int64)
+    idx_val = np.arange(n_train, n_train + n_val, dtype=np.int64)
+    return idx_train, idx_val
+
+
+# ---------------------------
+# Main entrypoint (paper-strict)
+# ---------------------------
+
+def make_dataloaders_paper_strict(
+    normal_parquet_path: str,
+    attack_parquet_path: str,
     window_cfg: WindowingConfig,
     split_cfg: Any,
     loader_cfg: Any,
     label_col: Optional[str] = None,
+    test_mode: str = "mixed_tail+attack",
+    normal_tail_rows: int = 20000,
 ) -> Tuple[DataLoader, DataLoader, DataLoader, Dict[str, object]]:
     """
-    Build dataloaders for WDNN-style forecasting.
+    Paper-strict dataloaders:
+      - Load normal_parquet and attack_parquet separately
+      - Fit scaler on NORMAL only
+      - Train/Val: NORMAL only, contiguous split
+      - Test: mixed set built on-the-fly:
+          tail(normal, normal_tail_rows) + all(attack)
 
-    SlidingWindowDataset signature (your implementation):
-      (X, y_point, sensor_idx, cfg)
-    where it internally constructs:
-      - x window: (Win, m)
-      - y window: (Wout, mse)  (sensors only)
-      - lab (window label aggregated): scalar {0,1} using label_agg across Wout
+    Dataset yields (x, y_sensors, lab):
+      x:   (B, Win, m)
+      y:   (B, Wout, mse)    sensors only
+      lab: (B,) aggregated label over predicted window
     """
-    X, y, feature_cols = load_processed_parquet(parquet_path, label_col=label_col)
-    Xn, scaler = fit_minmax_on_normal(X, y)
+    # ---- Load both parquets
+    Xn_raw, y_n, feat_n = load_processed_parquet(normal_parquet_path, label_col=label_col)
+    Xa_raw, y_a, feat_a = load_processed_parquet(attack_parquet_path, label_col=label_col)
 
-    sensor_idx, actuator_idx, sensor_cols, actuator_cols = infer_sensor_actuator_indices(feature_cols)
+    if feat_n != feat_a:
+        raise ValueError(
+            "Feature columns mismatch between normal parquet and attack parquet. "
+            "They must be identical and in the same order."
+        )
 
-    splits = contiguous_normal_splits(y, split_cfg)
+    # Sanity: strict datasets should be pure
+    # (you already observed y_n all 0 and y_a all 1; keep a tolerant check)
+    if int(y_n.max()) != 0:
+        raise ValueError("Normal parquet contains attack labels; expected all zeros.")
+    if int(y_a.min()) != 1:
+        raise ValueError("Attack parquet contains normal labels; expected all ones.")
 
-    def _slice_by_time(idx: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        if idx.size == 0:
-            raise ValueError("Empty split indices.")
-        start = int(idx[0])
-        end = int(idx[-1] + 1)
-        return Xn[start:end], y[start:end]
+    # ---- Fit scaler on NORMAL only, then apply to both
+    scaler = fit_minmax_on_normal(Xn_raw)
+    Xn = apply_minmax(Xn_raw, scaler)
+    Xa = apply_minmax(Xa_raw, scaler)
 
-    X_tr, y_tr = _slice_by_time(splits["train"])
-    X_va, y_va = _slice_by_time(splits["val"])
-    X_te, y_te = Xn[splits["test"]], y[splits["test"]]
+    # ---- Infer sensor/actuator indices
+    sensor_idx, actuator_idx, sensor_cols, actuator_cols = infer_sensor_actuator_indices(feat_n)
 
+    # ---- Train/Val split (normal only)
+    idx_tr, idx_va = contiguous_split_normal(Xn, split_cfg)
+
+    X_tr = Xn[idx_tr]
+    y_tr = y_n[idx_tr]
+    X_va = Xn[idx_va]
+    y_va = y_n[idx_va]
+
+    # ---- Test set (paper-like mixed)
+    mode = (test_mode or "").strip().lower()
+    if mode not in ("mixed_tail+attack", "mixed", "tail+attack"):
+        raise ValueError(
+            f"Unsupported test_mode='{test_mode}'. "
+            "For paper-like evaluation use 'mixed_tail+attack'."
+        )
+
+    n_total_normal = len(Xn)
+    n_tail = min(int(normal_tail_rows), n_total_normal)
+    if n_tail <= 0:
+        raise ValueError("normal_tail_rows must be > 0 to build a mixed test set.")
+
+    X_tail = Xn[-n_tail:]
+    y_tail = y_n[-n_tail:]
+
+    X_te = np.concatenate([X_tail, Xa], axis=0)
+    y_te = np.concatenate([y_tail, y_a], axis=0)
+
+    tail_pct = 100.0 * float(n_tail) / float(max(1, n_total_normal))
+    test_note = (
+        f"mixed_tail+attack: tail(normal)={n_tail}/{n_total_normal} ({tail_pct:.2f}%) + "
+        f"attack={len(Xa)} rows"
+    )
+
+    # ---- Window datasets (your signature: (X, y_point, sensor_idx, cfg))
     train_ds = SlidingWindowDataset(X_tr, y_tr, sensor_idx, window_cfg)
     val_ds = SlidingWindowDataset(X_va, y_va, sensor_idx, window_cfg)
     test_ds = SlidingWindowDataset(X_te, y_te, sensor_idx, window_cfg)
 
+    # ---- Loaders
     train_loader = DataLoader(
         train_ds,
-        batch_size=int(loader_cfg.batch_size),
+        batch_size=int(getattr(loader_cfg, "batch_size", 64)),
         shuffle=True,
-        num_workers=int(loader_cfg.num_workers),
-        pin_memory=bool(loader_cfg.pin_memory),
+        num_workers=int(getattr(loader_cfg, "num_workers", 0)),
+        pin_memory=bool(getattr(loader_cfg, "pin_memory", True)),
         drop_last=bool(getattr(loader_cfg, "drop_last_train", True)),
     )
     val_loader = DataLoader(
         val_ds,
-        batch_size=int(loader_cfg.batch_size),
+        batch_size=int(getattr(loader_cfg, "batch_size", 64)),
         shuffle=False,
-        num_workers=int(loader_cfg.num_workers),
-        pin_memory=bool(loader_cfg.pin_memory),
+        num_workers=int(getattr(loader_cfg, "num_workers", 0)),
+        pin_memory=bool(getattr(loader_cfg, "pin_memory", True)),
         drop_last=False,
     )
     test_loader = DataLoader(
         test_ds,
-        batch_size=int(loader_cfg.batch_size),
+        batch_size=int(getattr(loader_cfg, "batch_size", 64)),
         shuffle=False,
-        num_workers=int(loader_cfg.num_workers),
-        pin_memory=bool(loader_cfg.pin_memory),
+        num_workers=int(getattr(loader_cfg, "num_workers", 0)),
+        pin_memory=bool(getattr(loader_cfg, "pin_memory", True)),
         drop_last=False,
     )
 
+    # ---- Artifacts for scripts/README
     artifacts: Dict[str, object] = {
-        # Paper notations / shapes
         "m": int(Xn.shape[1]),
         "mse": int(sensor_idx.size),
         "mac": int(actuator_idx.size),
@@ -277,12 +306,31 @@ def make_dataloaders(
         "actuator_idx": actuator_idx.copy(),
         "sensor_cols": list(sensor_cols),
         "actuator_cols": list(actuator_cols),
-
-        # Other useful stuff
-        "feature_cols": list(feature_cols),
+        "feature_cols": list(feat_n),
         "scaler": scaler,
-        "splits": {k: v.copy() for k, v in splits.items()},
+
+        "paths": {
+            "normal_parquet": str(normal_parquet_path),
+            "attack_parquet": str(attack_parquet_path),
+        },
+
+        "splits": {
+            "train_normal_rows": int(len(X_tr)),
+            "val_normal_rows": int(len(X_va)),
+        },
+
+        "test_mode": "mixed_tail+attack",
+        "normal_tail_rows": int(normal_tail_rows),
+        "test_note": test_note,
+        "test_counts": {
+            "test_total_rows": int(len(y_te)),
+            "test_normal_rows": int((y_te == 0).sum()),
+            "test_attack_rows": int((y_te == 1).sum()),
+            "tail_normal_rows": int(n_tail),
+            "tail_normal_pct_of_normal": float(tail_pct),
+        },
+
         "window_cfg": window_cfg,
-        "parquet_path": parquet_path,
     }
+
     return train_loader, val_loader, test_loader, artifacts

@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 from daics.config import load_config
-from daics.data.dataloaders import make_dataloaders
+from daics.data.dataloaders import make_dataloaders_paper_strict
 from daics.eval.detect import DetectionConfig, detect_from_scores
 from daics.eval.mse import compute_section_mse_series
 from daics.train.wdnn_trainer import load_wdnn_checkpoint
@@ -86,13 +86,29 @@ def main() -> None:
 
     # Dataloaders
     logger.info("Building dataloaders...")
-    _train_loader, _val_loader, test_loader, _artifacts = make_dataloaders(
-        parquet_path=cfg.data.processed_path,
+    train_loader, val_loader, test_loader, artifacts = make_dataloaders_paper_strict(
+        normal_parquet_path=cfg.data.processed_normal_path,
+        attack_parquet_path=cfg.data.processed_attack_path,
         window_cfg=cfg.windowing,
         split_cfg=cfg.splits,
         loader_cfg=cfg.loader,
         label_col=cfg.data.label_col,
+        test_mode=str(cfg.eval.test_mode),
+        normal_tail_rows=int(cfg.eval.normal_tail_rows),
     )
+
+    if "test_counts" in artifacts:
+        tc = artifacts["test_counts"]
+        logger.info(
+            "Test set composition: total_rows=%d | normal_rows=%d | attack_rows=%d | "
+            "tail_normal_rows=%d (%.2f%% of normal parquet)",
+            int(tc["test_total_rows"]),
+            int(tc["test_normal_rows"]),
+            int(tc["test_attack_rows"]),
+            int(tc["tail_normal_rows"]),
+            float(tc["tail_normal_pct_of_normal"]),
+        )
+        logger.info("Test note: %s", artifacts.get("test_note", ""))
 
     # Load WDNN
     wdnn_path = Path(args.wdnn_ckpt)
