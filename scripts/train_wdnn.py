@@ -1,11 +1,24 @@
 from __future__ import annotations
 
+"""
+Train WDNN (DAICS paper-aligned, SWaT)
+
+Key points:
+- Uses the processed parquet produced by preprocess_swat.py (features + 'label')
+- Uses make_dataloaders(...) which yields:
+    x   : (B, Win, m)
+    y   : (B, Wout, mse)   [sensors only]
+    lab : (B,)             [aggregated label over Wout]
+- Trains unsupervised on NORMAL-only splits (train/val), as in paper.
+- Saves checkpoints: runs/wdnn/best.pt and runs/wdnn/last.pt
+"""
+
 import argparse
 from pathlib import Path
 from typing import List
 
 from daics.config import load_config
-from daics.data.dataloaders import make_dataloaders_paper
+from daics.data.dataloaders import make_dataloaders
 from daics.models.wdnn import WDNNConfig
 from daics.train.wdnn_trainer import WDNNTrainConfig, train_wdnn
 
@@ -17,43 +30,64 @@ def main() -> None:
 
     cfg = load_config(args.config)
 
-    train_loader, val_loader, _test_loader, artifacts = make_dataloaders_paper(cfg)
+    # Build loaders (paper-like one-class split is inside dataloaders)
+    train_loader, val_loader, _test_loader, artifacts = make_dataloaders(
+        parquet_path=cfg.data.processed_path,
+        window_cfg=cfg.windowing,
+        split_cfg=cfg.splits,
+        loader_cfg=cfg.loader,
+        label_col=cfg.data.label_col,
+    )
 
     mse = int(artifacts["mse"])
     m = int(artifacts["m"])
+    Win = int(cfg.windowing.Win)
+    Wout = int(cfg.windowing.Wout)
 
-    # Start simple: G=1 (all sensors in one output section).
-    # Later we can encode PLC grouping to match paper modularity.
+    # Start simple (and stable): G=1 section contains all sensors.
+    # Paper uses multiple sections (PLC-based) for scalability; we can add later.
     sensor_sections: List[List[int]] = [list(range(mse))]
 
+    # ---- WDNN model config (paper Table 4 defaults)
+    wdnn_yml = cfg.train.wdnn  # <--- IMPORTANT: nested under cfg.train now
+
     wdnn_cfg = WDNNConfig(
-        Win=int(cfg.windowing.Win),
-        Wout=int(cfg.windowing.Wout),
-        H=int(cfg.windowing.H),  # kept in cfg but not used inside model directly
+        Win=Win,
+        Wout=Wout,
         m=m,
         mse=mse,
-        dl1=int(getattr(cfg.wdnn, "dl1", 3 * int(cfg.windowing.Win))),
-        dl2=int(getattr(cfg.wdnn, "dl2", 3 * m)),
-        dl4=int(getattr(cfg.wdnn, "dl4", 80)),
-        cl1_channels=int(getattr(cfg.wdnn, "cl1_channels", 64)),
-        cl1_kernel=int(getattr(cfg.wdnn, "cl1_kernel", 2)),
-        cl2_channels=int(getattr(cfg.wdnn, "cl2_channels", 128)),
-        cl2_kernel=int(getattr(cfg.wdnn, "cl2_kernel", 2)),
-        leaky_slope=float(getattr(cfg.wdnn, "leaky_slope", 0.01)),
+        dl1=int(wdnn_yml.dl1) if wdnn_yml.dl1 is not None else 3 * Win,   # paper: 3*Win
+        dl2=int(wdnn_yml.dl2) if wdnn_yml.dl2 is not None else 3 * m,     # paper: 3*m
+        dl4=int(wdnn_yml.dl4),                                            # paper: 80
+        cl1_channels=int(wdnn_yml.cl1_channels),
+        cl1_kernel=int(wdnn_yml.cl1_kernel),
+        cl2_channels=int(wdnn_yml.cl2_channels),
+        cl2_kernel=int(wdnn_yml.cl2_kernel),
+        leaky_slope=float(wdnn_yml.leaky_slope),
     )
 
+    # ---- Training config (paper: SGD + MSE)
     train_cfg = WDNNTrainConfig(
-        lr=float(cfg.wdnn.lr),
-        epochs=int(cfg.wdnn.epochs),
-        weight_decay=float(getattr(cfg.wdnn, "weight_decay", 0.0)),
-        grad_clip=float(getattr(cfg.wdnn, "grad_clip", 1.0)),
+        lr=float(wdnn_yml.lr),                   # paper SWaT: 0.001
+        epochs=int(wdnn_yml.epochs),             # paper SWaT: 100
+        weight_decay=float(wdnn_yml.weight_decay),
+        grad_clip=float(wdnn_yml.grad_clip) if wdnn_yml.grad_clip is not None else None,
         seed=int(cfg.train.seed),
-        out_dir=str(cfg.wdnn.out_dir),
+        out_dir=str(wdnn_yml.out_dir),
+        save_best=True,
+        save_last=True,
     )
 
-    print("[INFO] WDNN training config loaded.")
-    print(f"  Win={wdnn_cfg.Win} Wout={wdnn_cfg.Wout} H={cfg.windowing.H} m={wdnn_cfg.m} mse={wdnn_cfg.mse}")
-    print(f"  lr={train_cfg.lr} epochs={train_cfg.epochs} out_dir={train_cfg.out_dir}")
+    print("[INFO] WDNN training config")
+    print(f"  Device        : {cfg.train.device}")
+    print(f"  Data parquet  : {cfg.data.processed_path}")
+    print(f"  Win/Wout/H/S  : {cfg.windowing.Win}/{cfg.windowing.Wout}/{cfg.windowing.H}/{cfg.windowing.S}")
+    print(f"  Wanom/Wgrace  : {cfg.detection.Wanom}/{cfg.detection.Wgrace}")
+    print(f"  m/mse/mac     : {artifacts['m']}/{artifacts['mse']}/{artifacts['mac']}")
+    print(f"  Sections (G)  : {len(sensor_sections)}  -> sizes {[len(s) for s in sensor_sections]}")
+    print(f"  Optim         : SGD(lr={train_cfg.lr})")
+    print(f"  Epochs        : {train_cfg.epochs}")
+    print(f"  Out dir       : {train_cfg.out_dir}")
 
     _model, art = train_wdnn(
         train_loader=train_loader,
@@ -73,7 +107,9 @@ def main() -> None:
         f"config={args.config}\n"
     )
 
-    print(f"[OK] Done. Checkpoints saved in: {out_dir}")
+    print(f"[OK] WDNN done. Checkpoints in: {out_dir.resolve()}")
+    print(f"     - best: { (out_dir / 'best.pt').resolve() }")
+    print(f"     - last: { (out_dir / 'last.pt').resolve() }")
 
 
 if __name__ == "__main__":

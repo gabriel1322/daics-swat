@@ -120,7 +120,7 @@ train:
 # DATALOADER SETTINGS
 # ------------------------------------------------------------
 loader:
-  batch_size: 64
+  batch_size: 32
   num_workers: 0
   pin_memory: true
   drop_last_train: true

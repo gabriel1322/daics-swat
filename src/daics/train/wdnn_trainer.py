@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+"""
+WDNN trainer (paper-aligned)
+
+Paper:
+- Loss is MSE (Eq.(1)) summed across output sections g
+- Optimizer is SGD
+- Train/val on normal-only (one-class)
+"""
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -49,6 +58,10 @@ def evaluate_wdnn(
     sensor_sections: Sequence[Sequence[int]],
     device: torch.device,
 ) -> Dict[str, float]:
+    """
+    Evaluate average loss on a loader.
+    We also report per-section losses for debugging.
+    """
     model.eval()
     total_loss = 0.0
     n_batches = 0
@@ -59,7 +72,7 @@ def evaluate_wdnn(
         x = x.to(device, non_blocking=True)
         y_sensors = y_sensors.to(device, non_blocking=True)
 
-        y_hat_sections = model(x)
+        y_hat_sections = model(x)  # list of (B,Wout,mse_g)
         loss, losses_g = wdnn_loss_mse_per_section(y_hat_sections, y_sensors, sensor_sections)
 
         total_loss += float(loss.item())
@@ -88,6 +101,13 @@ def save_checkpoint(
     best_val: float,
     extra: Optional[Dict[str, object]] = None,
 ) -> None:
+    """
+    Save everything needed to resume / evaluate:
+      - model weights
+      - optimizer state
+      - wdnn_cfg (as dict)
+      - sensor_sections
+    """
     payload = {
         "epoch": epoch,
         "best_val": best_val,
@@ -101,6 +121,23 @@ def save_checkpoint(
     torch.save(payload, path)
 
 
+def load_wdnn_checkpoint(path: str, device: torch.device) -> WDNN:
+    """
+    Load a WDNN checkpoint saved by this trainer (best.pt or last.pt).
+
+    Returns the model in eval() mode on the specified device.
+    """
+    ckpt = torch.load(path, map_location=device)
+
+    wdnn_cfg = WDNNConfig(**ckpt["wdnn_cfg"])
+    sensor_sections = ckpt["sensor_sections"]
+
+    model = WDNN(wdnn_cfg, sensor_sections=sensor_sections).to(device)
+    model.load_state_dict(ckpt["model_state"])
+    model.eval()
+    return model
+
+
 def train_wdnn(
     train_loader: DataLoader,
     val_loader: DataLoader,
@@ -109,6 +146,11 @@ def train_wdnn(
     sensor_sections: Sequence[Sequence[int]],
     device: str = "auto",
 ) -> Tuple[WDNN, Dict[str, object]]:
+    """
+    Train WDNN using:
+      - SGD optimizer (paper)
+      - MSE loss summed over output sections (paper Eq.(1))
+    """
     _set_seed(train_cfg.seed)
     dev = _auto_device(device)
 
