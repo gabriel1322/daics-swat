@@ -1,49 +1,50 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 import pandas as pd
-import yaml
 
-from daics.data.swat import load_raw_swat, preprocess_swat
-from daics.utils.logging import get_logger
+from daics.config import load_config
+from daics.data.swat import SwatPreprocessConfig, preprocess_swat
 
-log = get_logger(__name__)
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Preprocess SWaT dataset")
-    parser.add_argument("--config", type=Path, required=True)
-    args = parser.parse_args()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", required=True, help="configs/base.yaml")
+    args = ap.parse_args()
 
-    with open(args.config, "r") as f:
-        cfg = yaml.safe_load(f)
+    cfg = load_config(args.config)
 
-    data_cfg = cfg["data"]
-    prep_cfg = cfg["preprocess"]
+    # Paper-aligned invariant for the rest of the repo:
+    # processed parquet MUST contain:
+    #   - feature columns (numeric)
+    #   - 'label' column (0 normal, 1 attack)
+    out_path = Path(cfg.data.processed_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    df_raw = load_raw_swat(
-        Path(data_cfg["normal_csv"]),
-        Path(data_cfg["attack_csv"]),
+    pp = SwatPreprocessConfig(
+        drop_timestamp=cfg.preprocess.drop_timestamp,
+        label_col_raw=cfg.preprocess.label_col,
+        downsample_sec=cfg.preprocess.downsample_sec,
+        remove_first_hours=cfg.preprocess.remove_first_hours,
     )
 
-    X, y = preprocess_swat(
-        df_raw,
-        label_col=prep_cfg["label_col"],
-        drop_timestamp=prep_cfg["drop_timestamp"],
-        downsample_sec=prep_cfg["downsample_sec"],
-        remove_first_hours=prep_cfg["remove_first_hours"],
+    df, feature_cols = preprocess_swat(
+        normal_csv=cfg.data.normal_csv,
+        attack_csv=cfg.data.attack_csv,
+        cfg=pp,
     )
 
-    out_path = Path("data/processed_swat.parquet")
-    out_path.parent.mkdir(exist_ok=True)
-
-    df_out = X.copy()
-    df_out["label"] = y
-
-    df_out.to_parquet(out_path)
-    log.info("Saved processed dataset to %s", out_path.resolve())
+    # Save
+    df.to_parquet(out_path, index=False)
+    logger.info("Saved processed dataset to %s", out_path.resolve())
+    logger.info("Features saved: %d", len(feature_cols))
+    logger.info("Columns: %s", ", ".join(list(df.columns)))
 
 
 if __name__ == "__main__":

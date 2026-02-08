@@ -1,30 +1,124 @@
-# Base configuration for DAICS-SWaT
+# ============================================================
+# DAICS - SWaT configuration
+#
+# Paper notation reminder:
+#   Win   = input time window length
+#   Wout  = output time window length
+#   H     = horizon (gap between input and output windows)
+#   Wanom = anomaly waiting time (consecutive violations)
+# ============================================================
+
+# ------------------------------------------------------------
+# DATA
+# ------------------------------------------------------------
 data:
+  # Raw CSVs (official SWaT dataset)
   normal_csv: "data/SWaT_Dataset_Normal_v1.csv"
   attack_csv: "data/SWaT_Dataset_Attack_v0.csv"
-  processed_path: data/processed_swat.parquet
+
+  # Output of preprocess script (numeric + binary label)
+  processed_path: "data/processed_swat.parquet"
+
+  # Raw CSV label column (string values: "Normal"/"Attack")
+  raw_label_col: "Normal/Attack"
+
+  # Parquet label column (created by preprocess step)
+  # 0 = normal, 1 = attack
   label_col: "label"
 
+
+# ------------------------------------------------------------
+# PREPROCESSING
+# ------------------------------------------------------------
 preprocess:
+  # Remove Timestamp column (not used by WDNN)
   drop_timestamp: true
-  label_col: "label"
+
+  # Column name inside raw CSV
+  label_col: "Normal/Attack"
+
+  # Downsample factor (SWaT originally 1Hz)
+  # 10 → keep 1 sample every 10 seconds
+  # (not mandatory in paper, but practical)
   downsample_sec: 10
+
+  # Remove early transient period (practical stabilization)
   remove_first_hours: 6
 
+
+# ------------------------------------------------------------
+# WINDOWING (Paper core hyperparameters - Table 4 SWaT)
+# ------------------------------------------------------------
+windowing:
+  # Input time window length (Win)
+  # Paper SWaT value
+  Win: 60
+
+  # Output prediction window length (Wout)
+  # Paper SWaT value
+  Wout: 4
+
+  # Horizon between input end and output start (H)
+  # Prevents trivial copying of last input values
+  H: 50
+
+  # Sliding stride
+  # Paper does not emphasize stride → keep 1
+  S: 1
+
+  # Label aggregation over predicted window
+  # "any" = anomaly if any of the Wout timestamps is attack
+  label_agg: "any"
+
+
+# ------------------------------------------------------------
+# DETECTION PARAMETERS (Paper Section V-C)
+# ------------------------------------------------------------
+detection:
+  # Number of consecutive threshold violations required
+  # before declaring anomaly
+  Wanom: 30
+
+  # Optional grace time (paper experiment)
+  # 0 = disabled initially
+  Wgrace: 0
+
+
+# ------------------------------------------------------------
+# TRAIN / VALIDATION SPLITS
+# ------------------------------------------------------------
+splits:
+  # Paper: train on normal-only,
+  # validation = 20% of normal training timeline
+  train_ratio: 0.8
+  val_ratio: 0.2
+  seed: 42
+
+
+# ------------------------------------------------------------
+# TRAINING HYPERPARAMETERS (Paper Table 4 - SWaT)
+# ------------------------------------------------------------
 train:
   seed: 42
   device: "auto"   # "auto" | "cpu" | "cuda"
 
-windowing:
-  W: 16
-  H: 1
-  S: 1
+  # WDNN hyperparameters
+  wdnn:
+    lr: 0.001
+    batch_size: 32
+    epochs: 100
 
-splits:
-  train_ratio: 0.8
-  val_ratio: 0.1
-  seed: 42
+  # TTNN hyperparameters
+  ttnn:
+    lr: 0.01
+    batch_size: 32
+    epochs: 1
+    median_kernel: 59
 
+
+# ------------------------------------------------------------
+# DATALOADER SETTINGS
+# ------------------------------------------------------------
 loader:
   batch_size: 64
   num_workers: 0

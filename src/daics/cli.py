@@ -1,20 +1,24 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
-from daics.utils.logging import get_logger
-
-log = get_logger(__name__)
+from daics.config import load_config
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="DAICS-SWaT project CLI")
-    parser.add_argument("--project-root", type=Path, default=Path("."), help="Repo root path")
-    args = parser.parse_args()
+    ap = argparse.ArgumentParser(prog="daics")
+    ap.add_argument("--config", required=True, help="configs/base.yaml")
 
-    log.info("DAICS repo is set up ✅")
-    log.info("Project root: %s", args.project_root.resolve())
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("show-config", help="Print parsed config")
+
+    args = ap.parse_args()
+    cfg = load_config(args.config)
+
+    if args.cmd == "show-config":
+        print(cfg)
+        return
 
 
 if __name__ == "__main__":

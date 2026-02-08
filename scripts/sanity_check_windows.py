@@ -3,52 +3,59 @@ from __future__ import annotations
 import argparse
 
 from daics.config import load_config
-from daics.data.dataloaders import LoaderConfig, SplitConfig, make_dataloaders
-from daics.data.windowing import WindowingConfig
+from daics.data.dataloaders import make_dataloaders
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", required=True, help="Path to YAML config, e.g. configs/base.yaml")
+    ap.add_argument("--config", required=True, help="configs/base.yaml")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
 
-    window_cfg = WindowingConfig(
-        W=int(cfg["windowing"]["W"]),
-        H=int(cfg["windowing"]["H"]),
-        S=int(cfg["windowing"]["S"]),
-    )
-    split_cfg = SplitConfig(
-        train_ratio=float(cfg["splits"]["train_ratio"]),
-        val_ratio=float(cfg["splits"]["val_ratio"]),
-        seed=int(cfg["splits"]["seed"]),
-    )
-    loader_cfg = LoaderConfig(
-        batch_size=int(cfg["loader"]["batch_size"]),
-        num_workers=int(cfg["loader"]["num_workers"]),
-        pin_memory=bool(cfg["loader"]["pin_memory"]),
-        drop_last_train=bool(cfg["loader"]["drop_last_train"]),
-    )
-
+    print("Building dataloaders...")
     train_loader, val_loader, test_loader, artifacts = make_dataloaders(
-        parquet_path=str(cfg["data"]["processed_path"]),
-        window_cfg=window_cfg,
-        split_cfg=split_cfg,
-        loader_cfg=loader_cfg,
-        label_col=cfg["data"].get("label_col", None),
+        parquet_path=cfg.data.processed_path,
+        window_cfg=cfg.windowing,
+        split_cfg=cfg.splits,
+        loader_cfg=cfg.loader,
+        label_col=cfg.data.label_col,
     )
 
+    print("\nExtracting one training batch...")
     x, y, lab = next(iter(train_loader))
-    print("Train batch shapes:")
-    print("  x   :", tuple(x.shape))    # (B, W, N)
-    print("  y   :", tuple(y.shape))    # (B, N)
-    print("  lab :", tuple(lab.shape))  # (B,)
 
-    print("\nDataset info:")
-    print("  features:", len(artifacts["feature_cols"]))
-    print("  window  :", artifacts["window_cfg"])
-    print("  parquet :", artifacts["parquet_path"])
+    # Paper notation
+    B, Win, m = x.shape
+    B2, Wout, mse = y.shape
+
+    print("\nBatch shapes (Paper notation):")
+    print(f"  x   : {tuple(x.shape)}  -> (B, Win, m)")
+    print(f"  y   : {tuple(y.shape)}  -> (B, Wout, mse)  [NOTE: WDNN predicts sensors only]")
+    print(f"  lab : {tuple(lab.shape)} -> (B,) aggregated label")
+
+    print("\nDataset info (from artifacts):")
+    print(f"  m (features total) : {artifacts['m']}")
+    print(f"  mse (sensors)      : {artifacts['mse']}")
+    print(f"  mac (actuators)    : {artifacts['mac']}")
+    print(f"  Win/Wout/H/S       : {artifacts['window_cfg']}")
+    print(f"  parquet            : {artifacts['parquet_path']}")
+    print(f"  #sensor_cols       : {len(artifacts['sensor_cols'])}")
+    print(f"  #actuator_cols     : {len(artifacts['actuator_cols'])}")
+
+    # --- Paper-aligned assertions ---
+    # Input is (Win, m) where m = mse + mac
+    assert m == artifacts["m"], "Mismatch: batch input feature dim vs artifacts['m']"
+    assert mse == artifacts["mse"], "Mismatch: batch output sensor dim vs artifacts['mse']"
+    assert m == artifacts["mse"] + artifacts["mac"], "Mismatch: m != mse + mac (paper invariant)"
+    assert Win == cfg.windowing.Win, "Mismatch: Win"
+    assert Wout == cfg.windowing.Wout, "Mismatch: Wout"
+
+    # quick iterator availability
+    _ = next(iter(val_loader))
+    _ = next(iter(test_loader))
+
+    print("\n[OK] sanity_check_windows passed (paper-aligned).")
 
 
 if __name__ == "__main__":
