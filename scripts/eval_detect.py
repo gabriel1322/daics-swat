@@ -156,7 +156,6 @@ def main() -> None:
     print(f"Tg(section0)  : {Tg:.6f}")
     print(f"Wanom/Wgrace  : {Wanom} / {Wgrace}")
     print(f"N windows     : {len(scores)}")
-    print(f"Attack ratio (lab mean): {float(y_true.mean()):.4f}")
 
     print("\n--- Raw thresholding (score > Tg) ---")
     print(f"TP={tp_raw} FP={fp_raw} TN={tn_raw} FN={fn_raw}")
@@ -176,6 +175,17 @@ def main() -> None:
         first_alarm = int(np.where(alarm == 1)[0][0])
         print(f"First alarm index: {first_alarm} (0-based window index)")
         print(f"Score at first alarm: {float(scores[first_alarm]):.6f} (Tg={Tg:.6f})")
+
+    print("\n--- Summary ---")
+    print(
+        f"Out of {len(scores)} test windows, the model correctly detected "
+        f"{tp_al} attack windows and correctly rejected {tn_al} normal windows "
+        f"after Wanom filtering."
+    )
+    print(
+        f"This corresponds to an F1-score of {f1_al:.4f} "
+        f"with Precision={prec_al:.4f} and Recall={rec_al:.4f}."
+    )
 
     print("\n[OK] eval_detect finished.")
 

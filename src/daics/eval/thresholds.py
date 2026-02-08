@@ -1,3 +1,4 @@
+# daics/eval/thresholds.py
 from __future__ import annotations
 
 """
@@ -8,12 +9,16 @@ Paper:
 - Tg = Tbase + max(T_est), where T_est is produced by TTNN sliding over
   median-filtered error history.
 
-This module is used later for computing thresholds per section.
-For now (G=1) it still works as-is.
+Extension (report-friendly):
+- few_steps: restrict threshold computation to the last K TTNN predictions.
+  This simulates a more "online" threshold update rather than using the
+  whole validation history.
+
+This module is used by scripts/tune_thresholds.py.
 """
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import torch
@@ -29,6 +34,10 @@ class ThresholdTuningConfig:
     win: int
     wout: int
     median_kernel: int = 59
+
+    # If not None, use only the last K TTNN predictions to compute max(T_est).
+    # This is NOT in the original paper; it's a controlled extension.
+    few_steps: Optional[int] = None
 
 
 def _median_filter_1d(arr: np.ndarray, k: int) -> np.ndarray:
@@ -50,7 +59,7 @@ def _median_filter_1d(arr: np.ndarray, k: int) -> np.ndarray:
 
 def load_ttnn_checkpoint(path: str, device: torch.device) -> TTNN:
     """
-    Load TTNN checkpoint saved by train_ttnn.py / ttnn_trainer.save_ttnn_checkpoint.
+    Load TTNN checkpoint saved by ttnn_trainer.save_ttnn_checkpoint.
     """
     ckpt = torch.load(path, map_location=device)
     win = int(ckpt["win"])
@@ -83,7 +92,7 @@ def tune_threshold_Tg(
     Paper Algorithm 1 (offline form).
 
     Input:
-      Eg: 1D history of past MSE values for section g.
+      Eg: 1D history of past MSE values for section g (validation, benign only).
     Output:
       Tg = Tbase + max(T_est)
 
@@ -91,7 +100,8 @@ def tune_threshold_Tg(
       - Median filter Eg
       - Slide Win-sized windows over Eg_med (INCLUDING the last possible window)
       - TTNN predicts scalar per window
-      - add max prediction to Tbase
+      - Add max prediction to Tbase
+      - Optional: few_steps => use only last K predictions for max()
     """
     Eg = np.asarray(Eg, dtype=np.float32)
     if Eg.ndim != 1:
@@ -111,4 +121,16 @@ def tune_threshold_Tg(
         yhat = ttnn(xb)                                  # (1, 1)
         preds.append(float(yhat[0, 0].item()))
 
-    return float(Tbase + max(preds)) if preds else float(Tbase)
+    if not preds:
+        return float(Tbase)
+
+    # few_steps extension (controlled experiment)
+    if cfg.few_steps is not None:
+        k = int(cfg.few_steps)
+        if k <= 0:
+            raise ValueError("few_steps must be >= 1 when provided.")
+        preds_use = preds[-k:] if k < len(preds) else preds
+    else:
+        preds_use = preds
+
+    return float(Tbase + max(preds_use))
