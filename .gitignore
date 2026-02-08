@@ -8,7 +8,6 @@ __pycache__/
 
 # data artifacts
 data/*.csv
-data/*.parquet
 data/*.pkl
 
 # notebooks
