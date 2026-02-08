@@ -1,0 +1,30 @@
+{
+  "created_at": "2026-02-08T13:40:31.193127Z",
+  "config_path": "configs/base.yaml",
+  "dataset": {
+    "parquet": "data/processed_swat.parquet",
+    "m": 51,
+    "mse": 26,
+    "mac": 25
+  },
+  "windowing": {
+    "Win": 60,
+    "Wout": 4,
+    "H": 50,
+    "S": 1
+  },
+  "detection": {
+    "Wanom": 30,
+    "Wgrace": 0
+  },
+  "checkpoints": {
+    "wdnn": "runs\\wdnn\\best.pt",
+    "ttnn_section0": "runs\\ttnn\\section_0.pt"
+  },
+  "thresholds": {
+    "Tbase": 0.02874687686562538,
+    "Tg_section0": 0.049461837857961655,
+    "median_kernel": 59
+  },
+  "notes": "G=1 (single section) for now; explain sectioning choice in report."
+}

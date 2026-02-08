@@ -130,7 +130,7 @@ def train_ttnn_one_section(
     Output:
       trained TTNN model + training stats
     """
-    X, y = build_ttnn_training_pairs(mse_series_val, win=win, median_kernel=59)
+    X, y = build_ttnn_training_pairs(mse_series_val, win=win, median_kernel=getattr(cfg, "median_kernel", 59))
     ds = _TTNNDataset(X, y)
     dl = DataLoader(ds, batch_size=cfg.batch_size, shuffle=True, drop_last=False)
 

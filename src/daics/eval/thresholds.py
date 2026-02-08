@@ -1,7 +1,18 @@
 from __future__ import annotations
 
+"""
+Threshold tuning helpers — DAICS Algorithm 1.
+
+Paper:
+- Tbase = mean(MSE_val) + std(MSE_val)   (validation is benign only)
+- Tg = Tbase + max(T_est), where T_est is produced by TTNN sliding over
+  median-filtered error history.
+
+This module is used later for computing thresholds per section.
+For now (G=1) it still works as-is.
+"""
+
 from dataclasses import dataclass
-from pathlib import Path
 from typing import List
 
 import numpy as np
@@ -21,6 +32,10 @@ class ThresholdTuningConfig:
 
 
 def _median_filter_1d(arr: np.ndarray, k: int) -> np.ndarray:
+    """
+    Simple 1D median filter with edge padding.
+    Paper uses median filtering to smooth short spikes before TTNN input.
+    """
     if k <= 1:
         return arr.copy()
     if k % 2 == 0:
@@ -34,6 +49,9 @@ def _median_filter_1d(arr: np.ndarray, k: int) -> np.ndarray:
 
 
 def load_ttnn_checkpoint(path: str, device: torch.device) -> TTNN:
+    """
+    Load TTNN checkpoint saved by train_ttnn.py / ttnn_trainer.save_ttnn_checkpoint.
+    """
     ckpt = torch.load(path, map_location=device)
     win = int(ckpt["win"])
     wout = int(ckpt["wout"])
@@ -46,8 +64,8 @@ def load_ttnn_checkpoint(path: str, device: torch.device) -> TTNN:
 
 def compute_Tbase(mse_val: np.ndarray) -> float:
     """
-    Paper Algorithm 1: Tbase = mean(MSE_val) + std(MSE_val)
-    (validation is benign only)
+    Paper Algorithm 1:
+      Tbase = mean(MSE_val) + std(MSE_val)
     """
     mse_val = np.asarray(mse_val, dtype=np.float32)
     return float(mse_val.mean() + mse_val.std(ddof=0))
@@ -62,20 +80,18 @@ def tune_threshold_Tg(
     device: torch.device,
 ) -> float:
     """
-    Paper Algorithm 1.
+    Paper Algorithm 1 (offline form).
+
     Input:
-      Eg: batch of past prediction errors (univariate series) for section g
-          It should represent the "history window" used at inference time.
-          In paper: Eg = { MSEg,[t0,t0+Win), ..., MSEg,[t0+s,t0+Win+s) }
+      Eg: 1D history of past MSE values for section g.
     Output:
       Tg = Tbase + max(T_est)
 
-    Practical offline implementation:
-      - Eg is a 1D sequence of length >= Win + s
-      - we compute median-filtered Eg (line 3)
-      - then slide Win over the filtered series to create s inputs
-      - TTNN predicts a scalar per input window
-      - Tg = Tbase + max(preds)
+    Implementation:
+      - Median filter Eg
+      - Slide Win-sized windows over Eg_med (INCLUDING the last possible window)
+      - TTNN predicts scalar per window
+      - add max prediction to Tbase
     """
     Eg = np.asarray(Eg, dtype=np.float32)
     if Eg.ndim != 1:
@@ -85,15 +101,14 @@ def tune_threshold_Tg(
 
     Eg_med = _median_filter_1d(Eg, cfg.median_kernel)
 
-    # Slide windows of length Win over Eg_med.
-    # Each window corresponds to X = MSĒg,[t0+i, t0+Win+i)
     preds: List[float] = []
-    last_start = len(Eg_med) - cfg.win
-    for i in range(last_start):
-        x = Eg_med[i : i + cfg.win]  # (Win,)
-        xb = torch.from_numpy(x).unsqueeze(0).to(device)  # (1,Win)
-        yhat = ttnn(xb)  # (1,1)
+    last_start = len(Eg_med) - cfg.win  # inclusive start index of last possible window
+
+    # IMPORTANT: +1 to include the last window
+    for i in range(last_start + 1):
+        x = Eg_med[i : i + cfg.win]                      # (Win,)
+        xb = torch.from_numpy(x).unsqueeze(0).to(device) # (1, Win)
+        yhat = ttnn(xb)                                  # (1, 1)
         preds.append(float(yhat[0, 0].item()))
 
-    Tg = float(Tbase + max(preds)) if preds else float(Tbase)
-    return Tg
+    return float(Tbase + max(preds)) if preds else float(Tbase)

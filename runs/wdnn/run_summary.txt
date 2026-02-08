@@ -1,0 +1,4 @@
+WDNN training finished
+best_val=0.014532228809617022
+best_epoch=100
+config=configs/base.yaml
