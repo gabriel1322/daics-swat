@@ -24,6 +24,41 @@ The implementation strictly follows the notation of the paper.
 
 ---
 
+## Installation & Requirements
+
+*Note: project was tested on Python 3.10.12*
+
+### 1️⃣ Clone this repository
+```bash
+git clone https://github.com/gabriel1322/daics-swat.git
+```
+Navigate to the project directory:
+```bash
+cd daics-swat
+```
+
+### 2️⃣ Create a Virtual Environment (recommended)
+```bash
+python -m venv .venv
+```
+
+Activate it:
+#### Windows
+```bash
+.\.venv\Scripts\activate
+```
+
+#### Linux / macOS
+```bash
+source .venv/bin/activate
+```
+
+### 3️⃣ Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
 # I. Full Pipeline
 
 ## Data Protocol Used
@@ -101,7 +136,7 @@ This prints:
 # II. Results
 
 ## 1. Model Hyperparameters and Evaluation Metrics
-*Note: We reuse the sames values as defined in the paper*
+*Note: we reuse the sames values as defined in the paper*
 <table>
 <tr>
 <td valign="top" width="50%">
