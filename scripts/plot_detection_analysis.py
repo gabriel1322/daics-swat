@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 """
-1) Confusion matrix (RAW):    raw_pred = (score > Tg)
-2) Confusion matrix (ALARM):  alarm = apply_wanom(raw_pred, Wanom, Wgrace)
-3) Score distributions (normal vs attack windows) + Tg vertical line
-4) Zoom around first alarm (if any)
+1) Confusion matrix (ALARM):  alarm = apply_wanom(raw_pred, Wanom, Wgrace)
+2) Score distributions (normal vs attack windows)
+3) Zoom around first alarm + Tg horizontal line
 
 Note:
 - Output is saved under runs/plots/<tag>_*.png
@@ -105,7 +104,7 @@ def _plot_score_distributions(
     bins: int = 60,
 ) -> None:
     """
-    Histogram of scores separated by ground truth labels, with Tg as a vertical line.
+    Histogram of scores separated by ground truth labels
     """
     s0 = scores[y_true == 0]
     s1 = scores[y_true == 1]
@@ -113,7 +112,6 @@ def _plot_score_distributions(
     plt.figure()
     plt.hist(s0, bins=bins, alpha=0.6, label=f"Normal windows (n={len(s0)})")
     plt.hist(s1, bins=bins, alpha=0.6, label=f"Attack windows (n={len(s1)})")
-    plt.axvline(float(Tg), linestyle="--", label=f"Tg={Tg:.6f}")
     plt.title(title)
     plt.xlabel("MSE score (per window)")
     plt.ylabel("Count")
@@ -150,7 +148,15 @@ def _plot_zoom_first_alarm(
 
     plt.figure()
     plt.plot(x, s)
-    plt.axhline(float(Tg), linestyle="--")
+    plt.axhline(Tg, linestyle="--", color="red")
+    plt.text(
+        start,
+        Tg,
+        f"Tg = {Tg:.4f}",
+        color="red",
+        verticalalignment="bottom"
+    )
+
 
     # Shade anomaly spans in the zoom region based on ground truth
     in_run = False
@@ -233,14 +239,12 @@ def main() -> None:
     raw_pred, alarm = detect_from_scores(scores=scores, Tg=Tg, cfg=det_cfg)
 
     # Confusions
-    tp_r, fp_r, tn_r, fn_r = _confusion(labs, raw_pred)
     tp_a, fp_a, tn_a, fn_a = _confusion(labs, alarm)
 
     tag = args.tag.strip()
     prefix = out_dir / tag
 
     # ---- ONLY the 4 plots we want ----
-    _plot_confusion_matrix(tp_r, fp_r, tn_r, fn_r, Path(str(prefix) + "_cm_raw.png"), f"Confusion matrix (RAW) [{tag}]")
     _plot_confusion_matrix(tp_a, fp_a, tn_a, fn_a, Path(str(prefix) + "_cm_alarm.png"), f"Confusion matrix (ALARM) [{tag}]")
     _plot_score_distributions(scores, labs, Tg, Path(str(prefix) + "_score_distributions.png"), f"Score distributions [{tag}]")
     _plot_zoom_first_alarm(scores, labs, Tg, alarm, Path(str(prefix) + "_zoom_first_alarm.png"), f"Zoom around first alarm [{tag}]")
