@@ -33,13 +33,12 @@ def main() -> None:
     # Build loaders (paper-like one-class split is inside dataloaders)
     train_loader, val_loader, test_loader, artifacts = make_dataloaders_paper_strict(
         normal_parquet_path=cfg.data.processed_normal_path,
-        attack_parquet_path=cfg.data.processed_attack_path,
+        merged_parquet_path=cfg.data.processed_merged_path,
         window_cfg=cfg.windowing,
         split_cfg=cfg.splits,
         loader_cfg=cfg.loader,
         label_col=cfg.data.label_col,
         test_mode=str(cfg.eval.test_mode),
-        normal_tail_rows=int(cfg.eval.normal_tail_rows),
     )
 
     mse = int(artifacts["mse"])

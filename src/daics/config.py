@@ -14,14 +14,14 @@ import yaml
 @dataclass(frozen=True)
 class DataConfig:
     # Raw SWaT CSVs
-    normal_csv: str = "data/SWaT_Dataset_Normal_v1.csv"
-    attack_csv: str = "data/SWaT_Dataset_Attack_v0.csv"
+    normal_csv: str = "data/normal.csv"
+    merged_csv: str = "data/merged.csv"
 
-    # Paper-strict outputs (2 parquets)
+    # Processed outputs
     processed_normal_path: str = "data/processed_swat_normal.parquet"
-    processed_attack_path: str = "data/processed_swat_attack.parquet"
+    processed_merged_path: str = "data/processed_swat_merged.parquet"
 
-    # Column name inside processed parquet (we store an integer "label": 0 normal, 1 attack)
+    # Column name inside processed parquet (0 normal, 1 attack)
     label_col: str = "label"
 
 
@@ -126,15 +126,7 @@ class TrainRuntimeConfig:
 
 @dataclass(frozen=True)
 class EvalYamlConfig:
-    """
-    We build the TEST set on-the-fly from 2 parquets:
-      test = tail(normal, normal_tail_rows) + all(attack)
-
-    This creates a mixed set (normal + attack) while keeping the "paper strict"
-    preprocessing outputs separated.
-    """
-    test_mode: str = "mixed_tail+attack"
-    normal_tail_rows: int = 20000
+    test_mode: str = "merged_parquet"
 
 
 @dataclass(frozen=True)

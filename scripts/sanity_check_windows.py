@@ -6,7 +6,7 @@ Sanity check for DAICS windowing + dataloaders (paper-strict SWaT)
 Goal:
   - Build loaders with paper-strict split:
       train/val from NORMAL parquet
-      test      from ATTACK parquet
+      test      from MERGED parquet
   - Pull one batch and print shapes in paper notation:
       x   : (B, Win, m)
       y   : (B, Wout, mse)   [WDNN predicts sensors only]
@@ -33,13 +33,12 @@ def main() -> None:
     print("Building dataloaders... (paper-strict)")
     train_loader, val_loader, test_loader, artifacts = make_dataloaders_paper_strict(
         normal_parquet_path=cfg.data.processed_normal_path,
-        attack_parquet_path=cfg.data.processed_attack_path,
+        merged_parquet_path=cfg.data.processed_merged_path,
         window_cfg=cfg.windowing,
         split_cfg=cfg.splits,
         loader_cfg=cfg.loader,
         label_col=cfg.data.label_col,
         test_mode=str(cfg.eval.test_mode),
-        normal_tail_rows=int(cfg.eval.normal_tail_rows),
     )
 
     print("\nExtracting one training batch...")
@@ -62,10 +61,9 @@ def main() -> None:
     print(f"  Wanom/Wgrace       : {cfg.detection.Wanom} / {cfg.detection.Wgrace}")
 
     # Paper-strict paths
-    print("\nPaper-strict parquet paths:")
-    paths = artifacts.get("paths", {})
-    print(f"  normal parquet     : {paths.get('normal_parquet', cfg.data.processed_normal_path)}")
-    print(f"  attack parquet     : {paths.get('attack_parquet', cfg.data.processed_attack_path)}")
+    print("\nPaper-aligned parquet paths:")
+    print(f"  normal parquet     : {artifacts['paths']['normal_parquet']}")
+    print(f"  merged parquet     : {artifacts['paths']['merged_parquet']}")
 
     print("\nPaper-strict test construction:")
     if "test_mode" in artifacts:

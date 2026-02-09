@@ -15,13 +15,9 @@ Paper-like split for SWaT:
   - Train/Val: from NORMAL dataset only (benign behavior)
   - Test: should contain BOTH normal and attack to compute meaningful TN/FP etc.
 
-In this repo (paper-strict preprocessing outputs):
-  - normal_parquet: contains only normal period rows (label=0)
-  - attack_parquet: contains only attack period rows (label=1)
-
-We build the test set on-the-fly:
-  test = tail(normal, normal_tail_rows) + all(attack)
-This yields a mixed test set while keeping preprocessing strict and reproducible.
+In this repo:
+  - normal_parquet: NORMAL only (label=0) => train/val (one-class)
+  - merged_parquet: NORMAL+ATTACK in timeline (label in {0,1}) => test
 """
 
 from dataclasses import dataclass
@@ -187,48 +183,40 @@ def contiguous_split_normal(Xn: np.ndarray, split_cfg: Any) -> Tuple[np.ndarray,
 
 def make_dataloaders_paper_strict(
     normal_parquet_path: str,
-    attack_parquet_path: str,
+    merged_parquet_path: str,
     window_cfg: WindowingConfig,
     split_cfg: Any,
     loader_cfg: Any,
     label_col: Optional[str] = None,
-    test_mode: str = "mixed_tail+attack",
+    test_mode: str = "merged_parquet",
     normal_tail_rows: int = 20000,
 ) -> Tuple[DataLoader, DataLoader, DataLoader, Dict[str, object]]:
     """
     Paper-strict dataloaders:
-      - Load normal_parquet and attack_parquet separately
+      - Load normal_parquet and merged_parquet separately
       - Fit scaler on NORMAL only
       - Train/Val: NORMAL only, contiguous split
-      - Test: mixed set built on-the-fly:
-          tail(normal, normal_tail_rows) + all(attack)
+      - Test: merged set
 
     Dataset yields (x, y_sensors, lab):
       x:   (B, Win, m)
       y:   (B, Wout, mse)    sensors only
       lab: (B,) aggregated label over predicted window
     """
-    # ---- Load both parquets
+    # ---- Load NORMAL parquet
     Xn_raw, y_n, feat_n = load_processed_parquet(normal_parquet_path, label_col=label_col)
-    Xa_raw, y_a, feat_a = load_processed_parquet(attack_parquet_path, label_col=label_col)
-
-    if feat_n != feat_a:
-        raise ValueError(
-            "Feature columns mismatch between normal parquet and attack parquet. "
-            "They must be identical and in the same order."
-        )
-
-    # Sanity: strict datasets should be pure
-    # (you already observed y_n all 0 and y_a all 1; keep a tolerant check)
     if int(y_n.max()) != 0:
         raise ValueError("Normal parquet contains attack labels; expected all zeros.")
-    if int(y_a.min()) != 1:
-        raise ValueError("Attack parquet contains normal labels; expected all ones.")
+
+    # ---- Load MERGED parquet (test)
+    Xm_raw, y_m, feat_m = load_processed_parquet(merged_parquet_path, label_col=label_col)
+    if feat_n != feat_m:
+        raise ValueError("Feature columns mismatch between normal parquet and merged parquet.")
 
     # ---- Fit scaler on NORMAL only, then apply to both
     scaler = fit_minmax_on_normal(Xn_raw)
     Xn = apply_minmax(Xn_raw, scaler)
-    Xa = apply_minmax(Xa_raw, scaler)
+    Xm = apply_minmax(Xm_raw, scaler)
 
     # ---- Infer sensor/actuator indices
     sensor_idx, actuator_idx, sensor_cols, actuator_cols = infer_sensor_actuator_indices(feat_n)
@@ -241,29 +229,24 @@ def make_dataloaders_paper_strict(
     X_va = Xn[idx_va]
     y_va = y_n[idx_va]
 
-    # ---- Test set (paper-like mixed)
+    # ---- Test set
     mode = (test_mode or "").strip().lower()
-    if mode not in ("mixed_tail+attack", "mixed", "tail+attack"):
+    if mode not in ("merged_parquet", "merged"):
         raise ValueError(
-            f"Unsupported test_mode='{test_mode}'. "
-            "For paper-like evaluation use 'mixed_tail+attack'."
+            f"Unsupported test_mode='{test_mode}'. Use 'merged_parquet' for paper-like evaluation."
         )
 
-    n_total_normal = len(Xn)
-    n_tail = min(int(normal_tail_rows), n_total_normal)
-    if n_tail <= 0:
-        raise ValueError("normal_tail_rows must be > 0 to build a mixed test set.")
+    X_te = Xm
+    y_te = y_m
 
-    X_tail = Xn[-n_tail:]
-    y_tail = y_n[-n_tail:]
+    n_total = int(len(y_te))
+    n_attack = int((y_te == 1).sum())
+    n_normal = int((y_te == 0).sum())
+    attack_ratio = 100.0 * n_attack / max(1, n_total)
 
-    X_te = np.concatenate([X_tail, Xa], axis=0)
-    y_te = np.concatenate([y_tail, y_a], axis=0)
-
-    tail_pct = 100.0 * float(n_tail) / float(max(1, n_total_normal))
     test_note = (
-        f"mixed_tail+attack: tail(normal)={n_tail}/{n_total_normal} ({tail_pct:.2f}%) + "
-        f"attack={len(Xa)} rows"
+        f"merged_parquet: total_rows={n_total} | normal_rows={n_normal} | "
+        f"attack_rows={n_attack} | attack_ratio={attack_ratio:.2f}%"
     )
 
     # ---- Window datasets (your signature: (X, y_point, sensor_idx, cfg))
@@ -311,7 +294,7 @@ def make_dataloaders_paper_strict(
 
         "paths": {
             "normal_parquet": str(normal_parquet_path),
-            "attack_parquet": str(attack_parquet_path),
+            "merged_parquet": str(merged_parquet_path),
         },
 
         "splits": {
@@ -319,15 +302,12 @@ def make_dataloaders_paper_strict(
             "val_normal_rows": int(len(X_va)),
         },
 
-        "test_mode": "mixed_tail+attack",
-        "normal_tail_rows": int(normal_tail_rows),
+        "test_mode": "merged_parquet",
         "test_note": test_note,
         "test_counts": {
             "test_total_rows": int(len(y_te)),
             "test_normal_rows": int((y_te == 0).sum()),
             "test_attack_rows": int((y_te == 1).sum()),
-            "tail_normal_rows": int(n_tail),
-            "tail_normal_pct_of_normal": float(tail_pct),
         },
 
         "window_cfg": window_cfg,

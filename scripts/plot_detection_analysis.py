@@ -206,16 +206,15 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     _ensure_outdir(out_dir)
 
-    # Dataloaders (paper strict split; test is mixed_tail+attack)
-    _train_loader, _val_loader, test_loader, _artifacts = make_dataloaders_paper_strict(
+    # Dataloaders (paper strict split; test is merged)
+    train_loader, val_loader, test_loader, artifacts = make_dataloaders_paper_strict(
         normal_parquet_path=cfg.data.processed_normal_path,
-        attack_parquet_path=cfg.data.processed_attack_path,
+        merged_parquet_path=cfg.data.processed_merged_path,
         window_cfg=cfg.windowing,
         split_cfg=cfg.splits,
         loader_cfg=cfg.loader,
         label_col=cfg.data.label_col,
         test_mode=str(cfg.eval.test_mode),
-        normal_tail_rows=int(cfg.eval.normal_tail_rows),
     )
 
     # Load WDNN

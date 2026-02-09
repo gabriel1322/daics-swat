@@ -71,7 +71,7 @@ def preprocess_swat_single_csv(
 
     This function is used for BOTH:
       - Normal CSV  -> should become all label=0 (benign)
-      - Attack CSV  -> becomes mixed (normal + attack)
+      - Merged CSV  -> mixed (normal + attack)
     """
     df = load_swat_csv(csv_path)
 

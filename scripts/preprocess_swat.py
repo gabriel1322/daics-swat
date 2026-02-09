@@ -19,9 +19,9 @@ def main() -> None:
     cfg = load_config(args.config)
 
     out_normal = Path(cfg.data.processed_normal_path)
-    out_attack = Path(cfg.data.processed_attack_path)
+    out_merged = Path(cfg.data.processed_merged_path)
     out_normal.parent.mkdir(parents=True, exist_ok=True)
-    out_attack.parent.mkdir(parents=True, exist_ok=True)
+    out_merged.parent.mkdir(parents=True, exist_ok=True)
 
     pp = SwatPreprocessConfig(
         drop_timestamp=cfg.preprocess.drop_timestamp,
@@ -30,35 +30,30 @@ def main() -> None:
         remove_first_hours=cfg.preprocess.remove_first_hours,
     )
 
-    logger.info("=== Paper-strict preprocessing ===")
+    logger.info("=== Paper-aligned preprocessing ===")
     logger.info("Normal CSV : %s", cfg.data.normal_csv)
-    logger.info("Attack CSV : %s", cfg.data.attack_csv)
+    logger.info("Merged CSV : %s", cfg.data.merged_csv)
     logger.info("Output normal parquet: %s", out_normal)
-    logger.info("Output attack  parquet: %s", out_attack)
+    logger.info("Output merged parquet: %s", out_merged)
 
     df_n, feat_n = preprocess_swat_single_csv(cfg.data.normal_csv, pp)
-    df_a, feat_a = preprocess_swat_single_csv(cfg.data.attack_csv, pp)
+    df_m, feat_m = preprocess_swat_single_csv(cfg.data.merged_csv, pp)
 
-    # Enforce same feature set/order
-    if feat_n != feat_a:
-        # try to align by intersection (in normal order)
-        common = [c for c in feat_n if c in feat_a]
-        missing_in_attack = [c for c in feat_n if c not in feat_a]
-        missing_in_normal = [c for c in feat_a if c not in feat_n]
+    if feat_n != feat_m:
+        missing_in_merged = [c for c in feat_n if c not in feat_m]
+        missing_in_normal = [c for c in feat_m if c not in feat_n]
         raise ValueError(
-            "Feature columns mismatch between normal and attack CSV.\n"
-            f"Missing in attack: {missing_in_attack}\n"
+            "Feature columns mismatch between normal CSV and merged CSV.\n"
+            f"Missing in merged: {missing_in_merged}\n"
             f"Missing in normal: {missing_in_normal}\n"
-            f"Common count: {len(common)}"
         )
 
     df_n.to_parquet(out_normal, index=False)
-    df_a.to_parquet(out_attack, index=False)
+    df_m.to_parquet(out_merged, index=False)
 
     logger.info("Saved normal parquet to %s", out_normal.resolve())
-    logger.info("Saved attack  parquet to %s", out_attack.resolve())
+    logger.info("Saved merged parquet to %s", out_merged.resolve())
     logger.info("Features saved: %d", len(feat_n))
-    logger.info("Columns: %s", ", ".join(list(df_n.columns)))
 
 
 if __name__ == "__main__":

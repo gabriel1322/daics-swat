@@ -88,27 +88,21 @@ def main() -> None:
     logger.info("Building dataloaders...")
     train_loader, val_loader, test_loader, artifacts = make_dataloaders_paper_strict(
         normal_parquet_path=cfg.data.processed_normal_path,
-        attack_parquet_path=cfg.data.processed_attack_path,
+        merged_parquet_path=cfg.data.processed_merged_path,
         window_cfg=cfg.windowing,
         split_cfg=cfg.splits,
         loader_cfg=cfg.loader,
         label_col=cfg.data.label_col,
         test_mode=str(cfg.eval.test_mode),
-        normal_tail_rows=int(cfg.eval.normal_tail_rows),
     )
 
     if "test_counts" in artifacts:
-        tc = artifacts["test_counts"]
+        tc = artifacts.get("test_counts", {})
         logger.info(
-            "Test set composition: total_rows=%d | normal_rows=%d | attack_rows=%d | "
-            "tail_normal_rows=%d (%.2f%% of normal parquet)",
-            int(tc["test_total_rows"]),
-            int(tc["test_normal_rows"]),
-            int(tc["test_attack_rows"]),
-            int(tc["tail_normal_rows"]),
-            float(tc["tail_normal_pct_of_normal"]),
+            "Test set composition: total_rows=%s | normal_rows=%s | attack_rows=%s",
+            tc.get("test_total_rows"), tc.get("test_normal_rows"), tc.get("test_attack_rows")
         )
-        logger.info("Test note: %s", artifacts.get("test_note", ""))
+        logger.info("Test note: %s", artifacts.get("test_note"))
 
     # Load WDNN
     wdnn_path = Path(args.wdnn_ckpt)
