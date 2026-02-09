@@ -20,7 +20,7 @@ The complete pipeline includes:
 4. **Window-level detection with W<sub>anom</sub> logic**  
    → Reduces false alarms by enforcing anomaly persistence.
 
-The implementation strictly follows the notation of the paper.
+The implementation follows the notation and structure of the paper.
 
 ---
 
@@ -65,11 +65,11 @@ pip install -r requirements.txt
 
 - **Training set** → Normal data only  
 - **Validation set** → Normal data only  
-- **Test set** → Mixed scenario (tail of normal + attack)
+- **Test set** → Merged data
 
-By default, the test set uses the last **7000 normal rows** from the normal parquet, then appends **all attack rows** from the attack parquet.
-
-Attacks indeed represent ≈ 5.13% of the test set. This number of rows was chosen to be close to the overall attack ratio in the complete SWaT timeline (≈ 4.95%).
+The model is trained and validated exclusively on the normal dataset, following the one-class learning setup described in the paper.
+For evaluation, we use the official SWaT merged dataset, which contains both normal and attack periods in chronological order (≈3.8 attack ratio).
+This ensures a realistic test scenario where the model is exposed to long normal behavior segments followed by real attack sequences.
 
 ## 1. Preprocessing the SWaT dataset (optional)
 The code already contains the processed parquet files, **so you can skip preprocessing**.
@@ -77,7 +77,7 @@ The code already contains the processed parquet files, **so you can skip preproc
 If you want to do it by yourself, you should download the official SWaT CSV files:
 
 - `normal.csv`
-- `attack.csv`
+- `merged.csv`
 
 Place them inside the */data* folder and run the following command: 
 ```bash
@@ -113,7 +113,7 @@ python scripts/train_ttnn.py --config configs/base.yaml --wdnn_ckpt runs/wdnn/be
 
 We use *G = 1* section (all sensors grouped).
 
-## 5. Tune Thresholds (Algorithm 1 and 2)
+## 5. Tune Thresholds (Algorithm 1)
 ```bash
 python scripts/tune_thresholds.py --config configs/base.yaml --wdnn_ckpt runs/wdnn/best.pt --ttnn_ckpt runs/ttnn/section_0.pt
 ```
@@ -121,22 +121,17 @@ python scripts/tune_thresholds.py --config configs/base.yaml --wdnn_ckpt runs/wd
 *Output: runs/thresholds.json*
 
 This script implements Algorithm 1 from the paper by computing the adaptive decision threshold T<sub>g</sub>, using the validation prediction error dynamics modeled by the TTNN.
+The Few-Steps Learning Algorithm (Algorithm 2) can also be enabled during threshold tuning with an additional flag *"--few_steps N"* for N adaptation steps. Here, Few-Steps produces only marginal variations of T<sub>g</sub> and does not affect final detection metrics.
 
 ## 6. Evaluate Detection
 ```bash
 python scripts/eval_detect.py --config configs/base.yaml --wdnn_ckpt runs/wdnn/best.pt --thresholds runs/thresholds.json
 ```
 
-This prints:
-- Raw threshold metrics
-- Wanom-filtered metrics
-- Confusion matrices
-- Score statistics
-
 # II. Results
 
 ## 1. Model Hyperparameters and Evaluation Metrics
-*Note: we reuse the sames values as defined in the paper*
+*Note: we reuse the sames values as defined in the paper, except for W<sub>anom</sub>*
 <table>
 <tr>
 <td valign="top" width="50%">
@@ -149,7 +144,7 @@ This prints:
 | W<sub>out</sub> | 4 |
 | H | 50 |
 | S | 1 |
-| W<sub>anom</sub> | 30 |
+| W<sub>anom</sub> | 200 |
 | W<sub>grace</sub> | 0 |
 
 </td>
@@ -194,24 +189,16 @@ This prints:
 
 <h3>Detection Performance (Window-Level)</h3>
 
-| Mode | Precision | Recall | F1-score |
+| Model | Precision | Recall | F1-score |
 |------|----------|--------|----------|
-| Raw threshold | 0.7649 | 0.8707 | 0.8144 |
-| After W<sub>anom</sub> | 0.8819 | 0.8365 | 0.8586 |
+| Our model (after W<sub>anom</sub>) | 0.9162 | 0.6044 | 0.7283 |
+| Paper's model | 0.9185 | 0.8616 | 0.8892 |
 
 </td>
 </tr>
 </table>
 
-Applying Wanom significantly reduces false positives while maintaining a high detection rate. This increases precision from 0.76 to 0.88 with only a moderate decrease in recall, leading to a higher overall F1-score and a more stable industrial detection behavior.
-## 2. Score Distributions
-
-<h3 align="center"></h3>
-<p align="center">
-  <img src="runs/plots/paper_default_score_distributions.png" width="600">
-</p>
-
-## 3. Plots
+## 2. Plots
 
 To generate analysis plots:
 ```bash
@@ -228,16 +215,16 @@ daics-swat/
 │
 ├── data/
 │   ├── normal.csv                     # Original SWaT normal CSV
-│   ├── attack.csv                     # Original SWaT attack CSV
+│   ├── merged.csv                     # Original SWaT merged CSV
 │   ├── processed_swat_normal.parquet
-│   └── processed_swat_attack.parquet
+│   └── processed_swat_merged.parquet
 │
 ├── scripts/
 │   ├── preprocess_swat.py             # CSV → Parquet preprocessing
 │   ├── sanity_check_windows.py        # Validates window shapes and splits
 │   ├── train_wdnn.py                  # WDNN training
 │   ├── train_ttnn.py                  # TTNN training
-│   ├── tune_thresholds.py             # Threshold computation (Algorithm 1 and Algorithm 2)
+│   ├── tune_thresholds.py             # Threshold computation (Algorithm 1)
 │   ├── eval_detect.py                 # Final detection evaluation
 │   └── plot_detection_analysis.py     # Plot generation
 │
@@ -267,3 +254,35 @@ daics-swat/
 ```
 
 ## References
+
+**Primary paper**
+
+- M. Abdelaty, R. Doriguzzi-Corin, and D. Siracusa,
+“DAICS: A Deep Learning Solution for Anomaly Detection in Industrial Control Systems,”
+IEEE Transactions on Emerging Topics in Computing, 2021.
+
+**Dataset**
+
+- [SWaT Dataset: Secure Water Treatment System (Normal & Attack Scenarios)](https://www.kaggle.com/datasets/vishala28/swat-dataset-secure-water-treatment-system) - Uploader: Vishal Agrawal
+
+**Related Implementations / Public Notebooks (SWaT-Based Work)**
+
+These public notebooks were reviewed for contextual understanding and alternative approaches to SWaT anomaly detection.
+
+- Ngoc Le,
+[Anomaly Detection with SWaT Dataset](https://github.com/ngoclesydney/Anomaly-Detection-with-Swat-Dataset/blob/master/Anomaly_3_attacks_25_01.ipynb)
+
+- cars S,
+[Anomaly Detection for Industrial Control Systems](https://www.kaggle.com/code/scarss/anomaly-detection-for-industrial-control-systems)
+
+- Kashif Nazir,
+[Revised Version](https://www.kaggle.com/code/kashifnazirntuf/revised-version)
+
+- Muhammad Abrar,
+[Blockchain Waseem](https://www.kaggle.com/code/muhammadabrar78/blockchain-waseem)
+
+- Vishal Agrawal,
+[notebook772eb39999](https://www.kaggle.com/code/vishala28/notebook772eb39999)
+
+- Đoàn Ngọc Bảo,
+[gdnv3](https://www.kaggle.com/code/baodoandev/gdnv3)
