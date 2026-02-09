@@ -59,8 +59,10 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-# I. Full Pipeline
+# A. Full Pipeline
+*Important: if you only want to evaluate detection, you can skip to section 6. The models are already trained with default values and saved in .pt files under the /runs folder.*
 
+**Hyperparameters values can manually be changed in /configs/base.yaml.**
 ## Data Protocol Used
 
 - **Training set** → Normal data only  
@@ -74,7 +76,7 @@ This ensures a realistic test scenario where the model is exposed to long normal
 ## 1. Preprocessing the SWaT dataset (optional)
 The code already contains the processed parquet files, **so you can skip preprocessing**.
 
-If you want to do it by yourself, you should download the official SWaT CSV files:
+If you want to do it by yourself, you should download the official SWaT CSV files (see *References*):
 
 - `normal.csv`
 - `merged.csv`
@@ -102,7 +104,7 @@ python scripts/train_wdnn.py --config configs/base.yaml
 
 *best.pt* is the checkpoint with best validation loss while *last.p*t is the final epoch model. You should use *best.pt* for detection.
 
-## 4. Train TTNN
+## 4. Train TTNN Model
 ```bash
 python scripts/train_ttnn.py --config configs/base.yaml --wdnn_ckpt runs/wdnn/best.pt
 ```
@@ -128,7 +130,7 @@ The Few-Steps Learning Algorithm (Algorithm 2) can also be enabled during thresh
 python scripts/eval_detect.py --config configs/base.yaml --wdnn_ckpt runs/wdnn/best.pt --thresholds runs/thresholds.json
 ```
 
-# II. Results
+# B. Results
 
 ## 1. Model Hyperparameters and Evaluation Metrics
 *Note: we reuse the sames values as defined in the paper, except for W<sub>anom</sub>*
