@@ -271,16 +271,16 @@ IEEE Transactions on Emerging Topics in Computing, 2021.
 
 These public notebooks were reviewed for contextual understanding and alternative approaches to SWaT anomaly detection.
 
-- Ngoc Le,
+- ngoclesydney,
 [Anomaly Detection with SWaT Dataset](https://github.com/ngoclesydney/Anomaly-Detection-with-Swat-Dataset/blob/master/Anomaly_3_attacks_25_01.ipynb)
 
-- cars S,
+- scarss,
 [Anomaly Detection for Industrial Control Systems](https://www.kaggle.com/code/scarss/anomaly-detection-for-industrial-control-systems)
 
-- Kashif Nazir,
+- kashifNazirntuf,
 [Revised Version](https://www.kaggle.com/code/kashifnazirntuf/revised-version)
 
-- Muhammad Abrar,
+- muhammadabrar78,
 [Blockchain Waseem](https://www.kaggle.com/code/muhammadabrar78/blockchain-waseem)
 
 - Vishal Agrawal,
