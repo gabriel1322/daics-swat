@@ -59,7 +59,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-# A. Full Pipeline
+# Full Pipeline
 *Important: if you only want to evaluate detection, you can skip to section 6. The models are already trained with default values and saved in .pt files under the /runs folder.*
 
 **Hyperparameters values can be changed manually in /configs/base.yaml.**
@@ -134,7 +134,7 @@ The **Few-Steps Learning Algorithm (Algorithm 2)** can also be enabled during th
 python scripts/eval_detect.py --config configs/base.yaml --wdnn_ckpt runs/wdnn/best.pt --thresholds runs/thresholds.json
 ```
 This steps evaluates the full detection pipeline on the mixed test set and outputs the main performance metrics (**Precision, Recall, F1-score**).
-# B. Results
+# Results
 
 ## 1. Model Hyperparameters and Evaluation Metrics
 *Note: we reuse the sames values as defined in the paper, except for W<sub>anom</sub>*
