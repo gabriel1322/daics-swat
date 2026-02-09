@@ -263,8 +263,8 @@ daics-swat/
 
 **Primary paper**
 
-- M. Abdelaty, R. Doriguzzi-Corin, and D. Siracusa,
-“DAICS: A Deep Learning Solution for Anomaly Detection in Industrial Control Systems,”
+- M. Abdelaty, R. Doriguzzi-Corin, and D. Siracusa.
+*DAICS: A Deep Learning Solution for Anomaly Detection in Industrial Control Systems.*
 IEEE Transactions on Emerging Topics in Computing, 2021.
 
 **Dataset**
