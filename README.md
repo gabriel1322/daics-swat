@@ -70,7 +70,7 @@ pip install -r requirements.txt
 - **Test set** → Merged data
 
 The model is trained and validated exclusively on the normal dataset, following the one-class learning setup described in the paper.
-For evaluation, we use the official SWaT merged dataset, which contains both normal and attack periods in chronological order (**≈3.8% attack ratio**).
+For evaluation, we use the official SWaT merged dataset, which contains both normal and attack periods in chronological order (**=3.85% attack ratio**).
 This ensures a realistic test scenario where the model is exposed to long normal behavior segments followed by real attack sequences.
 
 ## 1. Preprocessing the SWaT dataset (optional)
