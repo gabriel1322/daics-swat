@@ -58,6 +58,8 @@ source .venv/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
+*Note: this will usually take a few minutes.*
+
 Then:
 ```bash
 pip install -e .
