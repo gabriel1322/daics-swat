@@ -4,7 +4,7 @@ A university project implementing **DAICS** for anomaly detection on the **SWaT*
 
 ## Overview
 
-This repository provides a **paper-aligned reproduction** of the DAICS architecture for industrial anomaly detection on the SWaT dataset.
+This repository provides a **reproduction of the DAICS architecture** for industrial anomaly detection on the SWaT dataset.
 
 The complete pipeline includes:
 
@@ -59,10 +59,10 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-# A. Full Pipeline
+# Full Pipeline
 *Important: if you only want to evaluate detection, you can skip to section 6. The models are already trained with default values and saved in .pt files under the /runs folder.*
 
-**Hyperparameters values can manually be changed in /configs/base.yaml.**
+**Hyperparameters values can be changed manually in /configs/base.yaml.**
 ## Data Protocol Used
 
 - **Training set** → Normal data only  
@@ -70,7 +70,7 @@ pip install -r requirements.txt
 - **Test set** → Merged data
 
 The model is trained and validated exclusively on the normal dataset, following the one-class learning setup described in the paper.
-For evaluation, we use the official SWaT merged dataset, which contains both normal and attack periods in chronological order (≈3.8 attack ratio).
+For evaluation, we use the official SWaT merged dataset, which contains both normal and attack periods in chronological order (**=3.85% attack ratio**).
 This ensures a realistic test scenario where the model is exposed to long normal behavior segments followed by real attack sequences.
 
 ## 1. Preprocessing the SWaT dataset (optional)
@@ -78,8 +78,8 @@ The code already contains the processed parquet files, **so you can skip preproc
 
 If you want to do it by yourself, you should download the official SWaT CSV files (see *References*):
 
-- `normal.csv`
-- `merged.csv`
+- `normal.csv` (*~393MB*)
+- `merged.csv` (*~417MB*)
 
 Place them inside the */data* folder and run the following command: 
 ```bash
@@ -98,6 +98,8 @@ python scripts/train_wdnn.py --config configs/base.yaml
 ```
 *Number of epochs:* **100**
 
+*Training time:* **~1h**
+
 *Outputs:*
 - *runs/wdnn/best.pt*
 - *runs/wdnn/last.pt*
@@ -111,9 +113,11 @@ python scripts/train_ttnn.py --config configs/base.yaml --wdnn_ckpt runs/wdnn/be
 
 *Number of epochs:* **1**
 
-*Output: runs/ttnn/section_0.pt*
+*Training time:* **~1min**
 
-We use *G = 1* section (all sensors grouped).
+We use **G = 1 section** (all sensors grouped).
+
+*Output: runs/ttnn/section_0.pt*
 
 ## 5. Tune Thresholds (Algorithm 1)
 ```bash
@@ -122,15 +126,15 @@ python scripts/tune_thresholds.py --config configs/base.yaml --wdnn_ckpt runs/wd
 
 *Output: runs/thresholds.json*
 
-This script implements Algorithm 1 from the paper by computing the adaptive decision threshold T<sub>g</sub>, using the validation prediction error dynamics modeled by the TTNN.
-The Few-Steps Learning Algorithm (Algorithm 2) can also be enabled during threshold tuning with an additional flag *"--few_steps N"* for N adaptation steps. Here, Few-Steps produces only marginal variations of T<sub>g</sub> and does not affect final detection metrics.
+This script implements **Algorithm 1** from the paper by computing the adaptive decision threshold T<sub>g</sub>, using the validation prediction error dynamics modeled by the TTNN.
+The **Few-Steps Learning Algorithm (Algorithm 2)** can also be enabled during threshold tuning with an additional flag *"--few_steps N"* for N adaptation steps. Here, Few-Steps produces only marginal variations of T<sub>g</sub> and does not affect final detection metrics.
 
 ## 6. Evaluate Detection
 ```bash
 python scripts/eval_detect.py --config configs/base.yaml --wdnn_ckpt runs/wdnn/best.pt --thresholds runs/thresholds.json
 ```
-
-# B. Results
+This steps evaluates the full detection pipeline on the mixed test set and outputs the main performance metrics (**Precision, Recall, F1-score**).
+# Results
 
 ## 1. Model Hyperparameters and Evaluation Metrics
 *Note: we reuse the sames values as defined in the paper, except for W<sub>anom</sub>*
@@ -193,7 +197,7 @@ python scripts/eval_detect.py --config configs/base.yaml --wdnn_ckpt runs/wdnn/b
 
 | Model | Precision | Recall | F1-score |
 |------|----------|--------|----------|
-| Our model (after W<sub>anom</sub>) | 0.9162 | 0.6044 | 0.7283 |
+| Our model | 0.9162 | 0.6044 | 0.7283 |
 | Paper's model | 0.9185 | 0.8616 | 0.8892 |
 
 </td>
@@ -259,8 +263,8 @@ daics-swat/
 
 **Primary paper**
 
-- M. Abdelaty, R. Doriguzzi-Corin, and D. Siracusa,
-“DAICS: A Deep Learning Solution for Anomaly Detection in Industrial Control Systems,”
+- M. Abdelaty, R. Doriguzzi-Corin, and D. Siracusa.
+*DAICS: A Deep Learning Solution for Anomaly Detection in Industrial Control Systems.*
 IEEE Transactions on Emerging Topics in Computing, 2021.
 
 **Dataset**
