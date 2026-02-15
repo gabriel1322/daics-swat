@@ -58,6 +58,10 @@ source .venv/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
+Then:
+```bash
+pip install -e .
+```
 
 # Full Pipeline
 *Important: if you only want to evaluate detection, you can skip to section 6. The models are already trained with default values and saved in .pt files under the /runs folder.*
@@ -256,6 +260,7 @@ daics-swat/
 │   └── thresholds.json
 │
 ├── requirements.txt
+├── pyproject.toml
 └── README.md
 ```
 
