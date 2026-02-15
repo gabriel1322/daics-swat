@@ -60,7 +60,13 @@ pip install -r requirements.txt
 ```
 *Note: this will usually take a few minutes.*
 
-Then:
+Before installing in editable mode, make sure pip and setuptools are up to date:
+
+```bash
+python -m pip install -U pip setuptools wheel
+```
+
+Only then:
 ```bash
 pip install -e .
 ```
